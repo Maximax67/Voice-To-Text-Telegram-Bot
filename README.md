@@ -1,11 +1,13 @@
 # Voice To Text Telegram Bot
 
-This is a Telegram bot that provides speech recognition services using the Hugging Face API. You can send voice messages directly to the bot, or you can reply to a voice message with the `/text` command (by default) to receive a transcription of the message.
+[![License](https://img.shields.io/github/license/Maximax67/Voice-To-Text-Telegram-Bot)](https://github.com/Maximax67/Voice-To-Text-Telegram-Bot/blob/main/LICENSE)
+
+This is a Telegram bot that provides speech recognition services using the Gradio API space. You can send voice messages directly to the bot, or you can reply to a voice message with the `/text` command (by default) to receive a transcription of the message.
 
 ## Prerequisites
 
-- A Telegram bot token: You can [create a bot on Telegram](https://core.telegram.org/bots#how-do-i-create-a-bot) and obtain the token.
-- Python 3.7 or higher installed on your system.
+- Telegram Bot Token: Create your own Telegram bot and obtain a unique token from [Telegram's BotFather](https://core.telegram.org/bots#how-do-i-create-a-bot).
+- Python 3.7 or Higher: Ensure that you have Python 3.7 or a higher version installed on your system to run the bot.
 
 ## Installation
 
