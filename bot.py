@@ -1,11 +1,12 @@
-import json
 import logging
 import asyncio
 import requests
+import base64
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from gradio_client import Client
 
-from config import TELEGRAM_BOT_TOKEN, API_URL, HEADERS, LOG_FILE_NAME, LOG_FORMAT, RETRY_COUNT, RETRY_DELAY, MAX_FILE_SIZE, MAX_DURATION_SECONDS
+from config import TELEGRAM_BOT_TOKEN, API_URL, HF_TOKEN, LOG_FILE_NAME, LOG_FORMAT, MAX_FILE_SIZE, MAX_DURATION_SECONDS
 
 # Create a threading lock to ensure safe access to shared resources
 api_request_lock = asyncio.Lock()
@@ -28,33 +29,24 @@ logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
+# Load API
+gradio_client = Client(API_URL, hf_token=HF_TOKEN)
+
 # Function to perform the API request with retries
-async def perform_api_request(data, msg, user_id, username, chat_id):
-    retry_count = RETRY_COUNT
-    while retry_count >= 0:
-        async with api_request_lock:
-            response = requests.post(API_URL, headers=HEADERS, data=data)
-            if response.status_code == 200:
-                result = json.loads(response.content.decode("utf-8"))
-                transcription = result["text"]
-                await msg.edit_text(transcription)
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, API Result: {transcription}")
-                break
+async def perform_api_request(data, id, msg, user_id, username, chat_id):
+    async with api_request_lock:
+        audio = {
+            "name": id,
+            "data": base64.b64encode(data).decode()
+        }
+        result = gradio_client.predict(
+				audio,
+				"transcribe",
+				api_name="/predict"
+        )
 
-            elif response.status_code == 503 and retry_count: # Loading model status code
-                if retry_count == RETRY_COUNT:
-                    await msg.edit_text("API is loading the model... please wait...")
-
-                logger.debug(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API is loading the model: {RETRY_COUNT - retry_count + 1}/{RETRY_COUNT}")
-                retry_count -= 1
-
-            else: # Something went wrong
-                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Status code: {response.status_code}, Message: {response.content}")
-                await msg.edit_text(response.content)
-                break
-
-        await asyncio.sleep(RETRY_DELAY)
-
+        logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Response: {result}")
+        await msg.edit_text(result)
 
 # Function to download and process audio file
 async def process_audio(update, context, message):
@@ -84,12 +76,12 @@ async def process_audio(update, context, message):
         # Download the voice message
         response = requests.get(file_path)
         if response.status_code == 200:
-            logger.info(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Requested: {file_path}")
+            logger.info(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
             msg = await update.message.reply_text("Transcribing...")
 
-            asyncio.create_task(perform_api_request(response.content, msg, userid, username, chat_id))
+            asyncio.create_task(perform_api_request(response.content, file.file_id, msg, userid, username, chat_id))
         else:
-            logger.info(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Error downloading voice: {file_path}")
+            logger.info(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Error downloading voice: {file.file_id}")
             await update.message.reply_text("Error downloading voice message.")
     else:
         logger.debug(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Invalid reply: {message}")
