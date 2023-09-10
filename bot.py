@@ -12,11 +12,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-BOT_COMMAND = os.getenv('BOT_COMMAND')
-API_URL = os.getenv('API_URL')
-HF_TOKEN = os.getenv('HF_TOKEN')
+
+COMMAND_TRANSCRIBE = os.getenv('COMMAND_TRANSCRIBE')
+COMMAND_DIARIZE = os.getenv('COMMAND_DIARIZE')
+API_URL_TRANSCRIBE = os.getenv('API_URL_TRANSCRIBE')
+API_URL_DIARIZE = os.getenv('API_URL_DIARIZE')
+HF_TOKEN_TRANSCRIBE = os.getenv('HF_TOKEN_TRANSCRIBE')
+HF_TOKEN_DIARIZE = os.getenv('HF_TOKEN_DIARIZE')
+
 LOG_FILENAME = os.getenv('LOG_FILENAME')
 LOG_FORMAT = os.getenv('LOG_FORMAT')
+
 MAX_FILE_SIZE = os.getenv('MAX_FILE_SIZE')
 MAX_DURATION_SECONDS = os.getenv('MAX_DURATION_SECONDS')
 
@@ -54,28 +60,45 @@ if LOG_FILENAME:
 else:
     logger.warning("LOG_FILENAME not set! Logging to the file disabled!")
 
-if not API_URL:
-    logger.error("API_URL not set! Bot can't transribe audio!")
+if not API_URL_TRANSCRIBE:
+    logger.warning("API_URL_TRANSCRIBE not set! Bot can't transribe audio!")
 else:
     try:
-        gradio_client = Client(API_URL, hf_token=HF_TOKEN)
+        gradio_transcribe = Client(API_URL_TRANSCRIBE, hf_token=HF_TOKEN_TRANSCRIBE)
     except Exception as e:
-        logger.error(f"API Connect error: {str(e)}")
+        logger.error(f"API Transcribe Connect error: {str(e)}")
+
+if not API_URL_DIARIZE:
+    logger.warning("API_URL_DIARIZE not set! Bot can't diarize audio!")
+else:
+    try:
+        gradio_diarize = Client(API_URL_DIARIZE, hf_token=HF_TOKEN_DIARIZE)
+    except Exception as e:
+        logger.error(f"API Diarize Connect error: {str(e)}")
 
 if not TELEGRAM_BOT_TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN not set! App will crash soon...")
 
-if not BOT_COMMAND:
-    logger.warning("Bot command not set! Using default /text command!")
-    BOT_COMMAND = "text"
+if not COMMAND_TRANSCRIBE:
+    logger.warning("Bot transcribe command not set! Using default /text command!")
+    COMMAND_TRANSCRIBE = "text"
+
+if not COMMAND_DIARIZE:
+    logger.warning("Bot diarize command not set! Using default /diarize command!")
+    COMMAND_TRANSCRIBE = "diarize"
 
 
 # Function to perform the API request with retries
-async def perform_api_request(data, id, msg, user_id, username, chat_id):
+async def perform_api_request(data, id, msg, user_id, username, chat_id, diarize=False):
     async with api_request_lock:
-        if not "gradio_client" in globals():
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API is not connected!")
-            await msg.edit_text("API is not connected!")
+        if diarize and not "gradio_diarize" in globals():
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarize API is not connected!")
+            await msg.edit_text("Diarize API is not connected!")
+            return
+
+        if not diarize and not "gradio_transcribe" in globals():
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Transcribe API is not connected!")
+            await msg.edit_text("Transcribe API is not connected!")
             return
 
         audio = {
@@ -83,21 +106,35 @@ async def perform_api_request(data, id, msg, user_id, username, chat_id):
             "data": base64.b64encode(data).decode()
         }
 
-        try:
-            result = gradio_client.predict(
-                audio,
-                "transcribe",
-                api_name="/predict"
-            )
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Response: {result}")
-            await msg.edit_text(result)
-        except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Error: {str(e)}")
-            await msg.edit_text("API error!")
+        if diarize:
+            try:
+                result = gradio_diarize.predict(
+                    audio,
+                    "transcribe",
+                    True,
+                    api_name="/predict"
+                )
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarized: {result}")
+                await msg.edit_text(result)
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Diarize Error: {str(e)}")
+                await msg.edit_text("Diarize API error!")
+        else:
+            try:
+                result = gradio_transcribe.predict(
+                    audio,
+                    "transcribe",
+                    api_name="/predict"
+                )
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Transcribed: {result}")
+                await msg.edit_text(result)
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Transcribe Error: {str(e)}")
+                await msg.edit_text("Transcribe API error!")
 
 
 # Function to download and process audio file
-async def process_audio(update, context, message):
+async def process_audio(update, context, message, diarize=False):
     user = update.effective_user
     username = user.username
     userid = user.id
@@ -141,27 +178,39 @@ async def process_audio(update, context, message):
 
         if response.status_code == 200:
             logger.info(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
-            msg = await update.message.reply_text("Transcribing...")
 
-            asyncio.create_task(perform_api_request(response.content, file.file_id, msg, userid, username, chat_id))
+            if diarize:
+                msg = await update.message.reply_text("Diarizing...")
+            else:
+                msg = await update.message.reply_text("Transcribing...")
+
+            asyncio.create_task(perform_api_request(response.content, file.file_id, msg, userid, username, chat_id, diarize))
         else:
             logger.error(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file.file_id}, Status code: {response.status_code}")
             await update.message.reply_text("Error downloading the file!")
     else:
         logger.debug(f"User ID: {userid}, Chat ID: {chat_id}, Username: {username}, Invalid reply: {message}")
-        await update.message.reply_text(f"Please reply to a voice message with /{BOT_COMMAND} to transcribe it.")
+        await update.message.reply_text(f"Please reply to a voice message with /{COMMAND_TRANSCRIBE} to transcribe it.")
 
 
-# Function to handle BOT_COMMAND command
-async def bot_command(update: Update, context: CallbackContext):
+# Function to handle COMMAND_TRANSCRIBE
+async def transcribe_command(update: Update, context: CallbackContext):
+    print('start')
     message = update.message.reply_to_message
-    await process_audio(update, context, message)
+    await process_audio(update, context, message, diarize=False)
+    print('ok')
+
+
+# Function to handle COMMAND_TRANSCRIBE
+async def diarize_command(update: Update, context: CallbackContext):
+    message = update.message.reply_to_message
+    await process_audio(update, context, message, diarize=True)
 
 
 # Function to handle direct voice messages
 async def voice_message(update: Update, context: CallbackContext):
     message = update.message
-    await process_audio(update, context, message)
+    await process_audio(update, context, message, diarize=False)
 
 
 # Function to handle non-voice messages in private chat
@@ -169,15 +218,18 @@ async def non_voice_message(update: Update):
     user = update.effective_user
     chat_id = update.effective_chat.id
     logger.debug(f"User ID: {user.id}, Chat ID: {chat_id}, Username: {user.username}, Received a non-voice message: {update.message.id}")
-    await update.message.reply_text(f"Please send a voice message or use the /{BOT_COMMAND} command to transcribe it.")
+    await update.message.reply_text(f"Please send a voice message or use the /{COMMAND_TRANSCRIBE} command to transcribe it.")
 
 
 def main():
     try:
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-        # Handle BOT_COMMAND command
-        application.add_handler(CommandHandler(BOT_COMMAND, bot_command))
+        # Handle COMMAND_TRANSCRIBE
+        application.add_handler(CommandHandler(COMMAND_TRANSCRIBE, transcribe_command))
+
+        # Handle COMMAND_TRANSCRIBE
+        application.add_handler(CommandHandler(COMMAND_DIARIZE, diarize_command))
 
         # Handle direct voice or audio messages
         application.add_handler(MessageHandler(filters.ChatType.PRIVATE & (filters.VOICE | filters.AUDIO) & ~filters.COMMAND, voice_message))

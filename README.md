@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/github/license/Maximax67/Voice-To-Text-Telegram-Bot)](https://github.com/Maximax67/Voice-To-Text-Telegram-Bot/blob/main/LICENSE)
 
-This is a Telegram bot that provides speech recognition services using the Gradio API space. You can send voice messages directly to the bot, or you can reply to a voice message with the `/text` command (by default) to receive a transcription of the message.
+This is a Telegram bot that provides speech recognition services using the Gradio API space. You can send voice messages directly to the bot, or you can reply to a voice message with the `/text` command (by default) to receive a transcription of the message. Also you can get speaker diarization using `/diarize` command (by default).
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ This is a Telegram bot that provides speech recognition services using the Gradi
     python bot.py
     ```
 
-2. Interact with the bot on Telegram: Send a voice message directly to the bot to receive a transcription. Reply to a voice message with `/text` (by default) to get a transcription.
+2. Interact with the bot on Telegram: Send a voice message directly to the bot to receive a transcription. Reply to a voice message with `/text` (by default) to get a transcription or with `/diarize` (by default) to get speaker diarization.
 
 ## Logging
 
