@@ -1,4 +1,5 @@
 requests
 python-dotenv
 gradio_client
-python-telegram-bot
+aiogram
+pydub

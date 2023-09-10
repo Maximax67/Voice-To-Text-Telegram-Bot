@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/github/license/Maximax67/Voice-To-Text-Telegram-Bot)](https://github.com/Maximax67/Voice-To-Text-Telegram-Bot/blob/main/LICENSE)
 
-This is a Telegram bot that provides speech recognition services using the Gradio API space. You can send voice messages directly to the bot, or you can reply to a voice message with the `/text` command (by default) to receive a transcription of the message. Also you can get speaker diarization using `/diarize` command (by default).
+This is a Telegram bot that provides speech recognition services using the Gradio API space. You can send voice, audio, video, video-noted and other files directly to the bot, or you can reply to the message with the `/text` command (by default) to receive a transcription of it. Also you can get speaker diarization using `/diarize` command (by default).
 
 ## Prerequisites
 
@@ -34,8 +34,12 @@ This is a Telegram bot that provides speech recognition services using the Gradi
     python bot.py
     ```
 
-2. Interact with the bot on Telegram: Send a voice message directly to the bot to receive a transcription. Reply to a voice message with `/text` (by default) to get a transcription or with `/diarize` (by default) to get speaker diarization.
+2. Interact with the bot on Telegram: Send the message directly to the bot to receive a transcription. Reply to the message with `/text` (by default) to get a transcription or with `/diarize` (by default) to get speaker diarization of it.
+
+## Customization
+
+You can set your own commands for transcribing and diarization, max file size and duration. Also you can enable "instant reply in groups" option that allow bot to trigger to every voice, video, audio messages and get transcription of it. You can configuire logs params.
 
 ## Logging
 
-The bot logs user information, chat details, timestamps, and API results. Log messages are printed to the console and saved in a log file for reference.
+The bot logs user timestamps, information, chat details, usernames, API requests and results. Log messages are printed to the console and saved in a log file for reference.
