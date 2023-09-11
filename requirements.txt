@@ -2,4 +2,3 @@ requests
 python-dotenv
 gradio_client
 aiogram
-pydub

@@ -2,7 +2,6 @@ import os
 import logging
 import asyncio
 import base64
-from pydub import AudioSegment
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.utils.formatting import Text, Bold
@@ -36,6 +35,13 @@ if MAX_FILE_SIZE:
 
 if MAX_DURATION_SECONDS:
     MAX_DURATION_SECONDS = int(MAX_DURATION_SECONDS)
+
+# Define the maximum character limit for a single message
+MAX_MESSAGE_LENGTH = os.getenv('MAX_MESSAGE_LENGTH')
+if MAX_MESSAGE_LENGTH:
+    MAX_MESSAGE_LENGTH = int(MAX_MESSAGE_LENGTH)
+else:
+    MAX_MESSAGE_LENGTH = 4096
 
 # Create a threading lock to ensure safe access to shared resources
 api_request_lock = asyncio.Lock()
@@ -95,8 +101,34 @@ if not COMMAND_DIARIZE:
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
+# Function to send a long message split into multiple parts
+async def send_long_message(msg: types.Message, text: str):
+    try:
+        # Calculate the number of parts needed
+        num_parts = (len(text) - 1) // MAX_MESSAGE_LENGTH + 1
+
+        # Split the message into parts and send them as separate messages
+        for i in range(num_parts):
+            start_index = i * MAX_MESSAGE_LENGTH
+            end_index = (i + 1) * MAX_MESSAGE_LENGTH
+            part = text[start_index:end_index]
+
+            if i == 0:
+                # Send the first part as a new message
+                msg_next = await msg.edit_text(part)
+            else:
+                # Send subsequent parts as replies to the previous message
+                msg_next = await msg_next.reply(part)
+    except Exception as e:
+        logger.error(f"Sending long message error: {str(e)}")
+        if "msg_next" in locals():
+            await msg_next.reply("Sending long message error!")
+        else:
+            msg.reply("Sending long message error!")
+
 # Function to perform the API request with retries
-async def perform_api_request(data, id, msg, user_id, username, chat_id, diarize=False):
+async def perform_api_request(data: bytes, id: str, msg: types.Message,
+                                user_id: int, username: str, chat_id: int, diarize: bool):
     async with api_request_lock:
         if diarize and not "gradio_diarize" in globals():
             logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarize API is not connected!")
@@ -117,21 +149,26 @@ async def perform_api_request(data, id, msg, user_id, username, chat_id, diarize
             try:
                 result = await asyncio.to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarized: {result}")
-                await msg.edit_text(result)
             except Exception as e:
                 logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Diarize Error: {str(e)}")
                 await msg.edit_text("Diarize API error!")
+                return
         else:
             try:
                 result = await asyncio.to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Transcribed: {result}")
-                await msg.edit_text(result)
             except Exception as e:
                 logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Transcribe Error: {str(e)}")
                 await msg.edit_text("Transcribe API error!")
+                return
+
+        if len(result) <= MAX_MESSAGE_LENGTH:
+            await msg.edit_text(result)
+        else:
+            await send_long_message(msg, result)
 
 # Function to download and process audio file
-async def process_file(message: types.Message, reply, diarize):
+async def process_file(message: types.Message, reply: bool, diarize: bool):
     user = message.from_user
     username = user.username
     user_id = user.id
@@ -141,10 +178,7 @@ async def process_file(message: types.Message, reply, diarize):
     if reply:
         message = message.reply_to_message
 
-    if message:
-        file = message.voice or message.audio or message.video_note or message.video or message.document
-    else:
-        file = None
+    file = message.voice or message.audio or message.video_note or message.video if message else None
 
     if file:
         logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
@@ -195,26 +229,10 @@ async def process_file(message: types.Message, reply, diarize):
         # Download the voice message
         try:
             file_content = await bot.download_file(file_path)
+            data = file_content.read()
         except Exception as e:
             logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file.file_id}, {str(e)}")
             await msg.edit_text("Error downloading the file!")
-            return
-
-        await msg.edit_text("Extracting audio...")
-        try:
-            audio_segment = AudioSegment.from_file(file_content)
-            duration = len(audio_segment) / 1000.0 # Convert milliseconds to seconds
-
-            # Check file duration for audio messages
-            if MAX_DURATION_SECONDS and duration > MAX_DURATION_SECONDS:
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Duration exceeds the limit")
-                await msg.edit_text(f"Duration exceeds the {MAX_DURATION_SECONDS} seconds limit! Please send a shorter version!")
-                return
-
-            audio_content = audio_segment.export(format="wav").read()
-        except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Extracting audio error: {file.file_id}, {str(e)}")
-            await msg.edit_text("Error extracting audio!")
             return
 
         if diarize:
@@ -223,7 +241,7 @@ async def process_file(message: types.Message, reply, diarize):
             await msg.edit_text("Transcribing...")
 
         # Make api request
-        await perform_api_request(audio_content, file.file_id, msg, user_id, username, chat_id, diarize)
+        await perform_api_request(data, file.file_id, msg, user_id, username, chat_id, diarize)
     elif diarize:
         logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid diarize message: {trigger_msg.message_id}")
         await trigger_msg.reply(f"Please reply to a voice / audio / video message with /{COMMAND_DIARIZE} to diarize it.")
@@ -276,7 +294,7 @@ async def diarize_command(message: types.Message):
 # Function to handle direct voice messages
 @dp.message()
 async def voice_message(message: types.Message):
-    if message.content_type in {'voice', 'audio', 'video_note', 'video', 'document'}:
+    if message.content_type in {'voice', 'audio', 'video_note', 'video'}:
         if message.chat.type == 'private' or INSTANT_REPLY_IN_GROUPS:
             asyncio.create_task(process_file(message, False, False))
     elif message.chat.type == 'private':
