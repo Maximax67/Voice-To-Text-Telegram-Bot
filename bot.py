@@ -2,6 +2,8 @@ import os
 import logging
 import asyncio
 import base64
+import contextvars
+from functools import partial
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.utils.formatting import Text, Bold
@@ -101,6 +103,14 @@ if not COMMAND_DIARIZE:
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
+# Add supports to python 3.7-3.8 (asyncio.to_thread)
+# Copied from source code: https://github.com/python/cpython/blob/main/Lib/asyncio/threads.py#L12
+async def to_thread(func, /, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    func_call = partial(ctx.run, func, *args, **kwargs)
+    return await loop.run_in_executor(None, func_call)
+
 # Function to send a long message split into multiple parts
 async def send_long_message(msg: types.Message, text: str):
     try:
@@ -147,7 +157,7 @@ async def perform_api_request(data: bytes, id: str, msg: types.Message,
 
         if diarize:
             try:
-                result = await asyncio.to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
+                result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarized: {result}")
             except Exception as e:
                 logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Diarize Error: {str(e)}")
@@ -155,7 +165,7 @@ async def perform_api_request(data: bytes, id: str, msg: types.Message,
                 return
         else:
             try:
-                result = await asyncio.to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
+                result = await to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Transcribed: {result}")
             except Exception as e:
                 logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Transcribe Error: {str(e)}")
