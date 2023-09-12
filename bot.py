@@ -158,17 +158,17 @@ async def perform_api_request(data: bytes, id: str, msg: types.Message,
         if diarize:
             try:
                 result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarized: {result}")
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, Diarized: {result}")
             except Exception as e:
-                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Diarize Error: {str(e)}")
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Diarize Error: {str(e)}")
                 await msg.edit_text("Diarize API error!")
                 return
         else:
             try:
                 result = await to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Transcribed: {result}")
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, Transcribed: {result}")
             except Exception as e:
-                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, API Transcribe Error: {str(e)}")
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Transcribe Error: {str(e)}")
                 await msg.edit_text("Transcribe API error!")
                 return
 
@@ -193,44 +193,45 @@ async def process_file(message: types.Message, reply: bool, diarize: bool):
     if file:
         logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
 
+        file_id = file.file_id
+
         # Check file size
         if MAX_FILE_SIZE and file.file_size > MAX_FILE_SIZE:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File exceeds size the limit")
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
             await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
             return
 
         # Check file duration for voice messages
         if hasattr(file, "duration") and MAX_DURATION_SECONDS and file.duration > MAX_DURATION_SECONDS:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Duration exceeds the limit")
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Duration exceeds the limit")
             await message.reply(f"Duration exceeds the {MAX_DURATION_SECONDS} seconds limit! Please send a shorter version!")
             return
 
         # Request file path
         try:
-            file_id = file.file_id
             file_requested = await bot.get_file(file_id)
             file_path = file_requested.file_path
 
             # Double-Check file size
             if MAX_FILE_SIZE and file_requested.file_size > MAX_FILE_SIZE:
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File exceeds size the limit")
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
                 await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
                 return
         except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Can't request file: {file.file_id}, {str(e)}")
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Can't request file: {file_id}, {str(e)}")
             await message.reply("Error requesting file data!")
             return
 
         # Check file extension
         last_dot_index = file_path.rfind('.')
         if last_dot_index == -1:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Unknown file extension")
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unknown file extension")
             await message.reply("Unknown file extension!")
             return
 
         file_extension = file_path[last_dot_index + 1:].lower()
         if not file_extension in SUPPORTED_FILE_EXTENSIONS:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Unsupported file format: {file_extension}")
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unsupported file format: {file_extension}")
             await message.reply(f"Unsupported file format: {file_extension}")
             return
 
@@ -241,7 +242,7 @@ async def process_file(message: types.Message, reply: bool, diarize: bool):
             file_content = await bot.download_file(file_path)
             data = file_content.read()
         except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file.file_id}, {str(e)}")
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file_id}, {str(e)}")
             await msg.edit_text("Error downloading the file!")
             return
 
@@ -254,12 +255,13 @@ async def process_file(message: types.Message, reply: bool, diarize: bool):
         await perform_api_request(data, file.file_id, msg, user_id, username, chat_id, diarize)
     elif diarize:
         logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid diarize message: {trigger_msg.message_id}")
-        await trigger_msg.reply(f"Please reply to a voice / audio / video message with /{COMMAND_DIARIZE} to diarize it.")
+        await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_DIARIZE} to diarize it.")
     else:
         logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid transcribe message: {trigger_msg.message_id}")
-        await trigger_msg.reply(f"Please reply to a voice / audio / video message with /{COMMAND_TRANSCRIBE} to transcribe it.")
+        await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_TRANSCRIBE} to transcribe it.")
 
 
+# Function to get bot settings
 def get_bot_settings():
     return Text("Transcribe command: ",
                 Bold("/", COMMAND_TRANSCRIBE) if COMMAND_TRANSCRIBE else Bold("not set"),
@@ -274,18 +276,23 @@ def get_bot_settings():
                 "\n\nSupported files: ",
                 Bold(', '.join(SUPPORTED_FILE_EXTENSIONS)),
                 "\n", "-" * 30, "\n",
-                "Send a voice / audio / video message or reply to it using commands!"
+                "Send a voice, audio, video message or reply to it using commands!"
             )
 
 
-# Help function
+# Function to handle start commands
+@dp.message(Command("start"))
+async def transcribe_command(message: types.Message):
+    user = message.from_user
+    logger.info(f"User ID: {user.id}, Chat ID: {message.chat.id}, Username: {user.username}, Used start command")
+    await message.reply(**get_bot_settings().as_kwargs())
+
+
+# Function to handle help commands
 @dp.message(Command("help"))
 async def transcribe_command(message: types.Message):
     user = message.from_user
-    username = user.username
-    user_id = user.id
-    chat_id = message.chat.id
-    logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Used help command")
+    logger.info(f"User ID: {user.id}, Chat ID: {message.chat.id}, Username: {user.username}, Used help command")
     await message.reply(**get_bot_settings().as_kwargs())
 
 
@@ -309,11 +316,8 @@ async def voice_message(message: types.Message):
             asyncio.create_task(process_file(message, False, False))
     elif message.chat.type == 'private':
         user = message.from_user
-        username = user.username
-        user_id = user.id
-        chat_id = message.chat.id
-        logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Sended invalid message: {message.message_id}")
-        await message.reply(f"Send a voice / audio / video message or reply to it using commands! (see /help).")
+        logger.info(f"User ID: {user.id}, Chat ID: {message.chat.id}, Username: {user.username}, Sended invalid message: {message.message_id}")
+        await message.reply(f"Send a voice, audio, video message or reply to it using commands! (see /help).")
 
 
 async def main():
