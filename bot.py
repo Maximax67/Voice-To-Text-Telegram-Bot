@@ -45,8 +45,9 @@ if MAX_MESSAGE_LENGTH:
 else:
     MAX_MESSAGE_LENGTH = 4096
 
-# Create a threading lock to ensure safe access to shared resources
-api_request_lock = asyncio.Lock()
+# Create a semaphore lock to limit concurrent API requests
+api_transcribe_semaphore = asyncio.Semaphore(1)
+api_diarize_semaphore = asyncio.Semaphore(1)
 
 # Set log format
 if not LOG_FORMAT:
@@ -111,6 +112,7 @@ async def to_thread(func, /, *args, **kwargs):
     func_call = partial(ctx.run, func, *args, **kwargs)
     return await loop.run_in_executor(None, func_call)
 
+
 # Function to send a long message split into multiple parts
 async def send_long_message(msg: types.Message, text: str):
     try:
@@ -136,46 +138,51 @@ async def send_long_message(msg: types.Message, text: str):
         else:
             msg.reply("Sending long message error!")
 
+
 # Function to perform the API request with retries
 async def perform_api_request(data: bytes, id: str, msg: types.Message,
                                 user_id: int, username: str, chat_id: int, diarize: bool):
-    async with api_request_lock:
-        if diarize and not "gradio_diarize" in globals():
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarize API is not connected!")
-            await msg.edit_text("Diarize API is not connected!")
-            return
+    if diarize and not "gradio_diarize" in globals():
+        logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Diarize API is not connected!")
+        await msg.edit_text("Diarize API is not connected!")
+        return
 
-        if not diarize and not "gradio_transcribe" in globals():
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Transcribe API is not connected!")
-            await msg.edit_text("Transcribe API is not connected!")
-            return
+    if not diarize and not "gradio_transcribe" in globals():
+        logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Transcribe API is not connected!")
+        await msg.edit_text("Transcribe API is not connected!")
+        return
 
-        audio = {
-            "name": id,
-            "data": base64.b64encode(data).decode()
-        }
+    audio = {
+        "name": id,
+        "data": base64.b64encode(data).decode()
+    }
 
-        if diarize:
-            try:
+    if diarize:
+        try:
+            async with api_diarize_semaphore:
                 result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, Diarized: {result}")
-            except Exception as e:
-                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Diarize Error: {str(e)}")
-                await msg.edit_text("Diarize API error!")
-                return
-        else:
-            try:
+        except Exception as e:
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Diarize Error: {str(e)}")
+            await msg.edit_text("Diarize API error!")
+            return
+    else:
+        try:
+            async with api_transcribe_semaphore:
                 result = await to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, Transcribed: {result}")
-            except Exception as e:
-                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Transcribe Error: {str(e)}")
-                await msg.edit_text("Transcribe API error!")
-                return
+        except Exception as e:
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Transcribe Error: {str(e)}")
+            await msg.edit_text("Transcribe API error!")
+            return
 
-        if len(result) <= MAX_MESSAGE_LENGTH:
-            await msg.edit_text(result)
-        else:
-            await send_long_message(msg, result)
+    if len(result) <= MAX_MESSAGE_LENGTH:
+        await msg.edit_text(result)
+    elif result:
+        await send_long_message(msg, result)
+    else:
+        await msg.edit_text("Text not recognized!")
+
 
 # Function to download and process audio file
 async def process_file(message: types.Message, reply: bool, diarize: bool):
@@ -299,13 +306,13 @@ async def transcribe_command(message: types.Message):
 # Function to handle COMMAND_TRANSCRIBE
 @dp.message(Command(COMMAND_TRANSCRIBE))
 async def transcribe_command(message: types.Message):
-    asyncio.create_task(process_file(message, True, False))
+    await process_file(message, True, False)
 
 
 # Function to handle COMMAND_DIARIZE
 @dp.message(Command(COMMAND_DIARIZE))
 async def diarize_command(message: types.Message):
-    asyncio.create_task(process_file(message, True, True))
+    await process_file(message, True, True)
 
 
 # Function to handle direct voice messages
@@ -313,7 +320,7 @@ async def diarize_command(message: types.Message):
 async def voice_message(message: types.Message):
     if message.content_type in {'voice', 'audio', 'video_note', 'video'}:
         if message.chat.type == 'private' or INSTANT_REPLY_IN_GROUPS:
-            asyncio.create_task(process_file(message, False, False))
+            await process_file(message, False, False)
     elif message.chat.type == 'private':
         user = message.from_user
         logger.info(f"User ID: {user.id}, Chat ID: {message.chat.id}, Username: {user.username}, Sended invalid message: {message.message_id}")
