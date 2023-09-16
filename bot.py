@@ -3,7 +3,9 @@ import logging
 import asyncio
 import base64
 import contextvars
-from functools import partial
+import time
+from collections import defaultdict, deque
+from functools import partial, wraps
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters.command import Command
 from aiogram.utils.formatting import Text, Bold
@@ -29,6 +31,11 @@ LOG_FORMAT = os.getenv('LOG_FORMAT')
 MAX_FILE_SIZE = os.getenv('MAX_FILE_SIZE')
 MAX_DURATION_SECONDS = os.getenv('MAX_DURATION_SECONDS')
 
+MAX_SIMULTANIOUS_REQUESTS = os.getenv('MAX_SIMULTANIOUS_REQUESTS')
+
+USER_RATE_LIMIT = os.getenv('USER_RATE_LIMIT')
+USER_REQUEST_TIME = os.getenv('USER_REQUEST_TIME')
+
 SUPPORTED_FILE_EXTENSIONS = ('mid', 'mp3', 'opus', 'oga', 'ogg', 'wav', 'webm', 'weba', 'flac',
                         'wma', 'aiff', 'opus', 'm4a', 'au', 'mp4', 'avi', 'mkv', 'mov')
 
@@ -37,6 +44,15 @@ if MAX_FILE_SIZE:
 
 if MAX_DURATION_SECONDS:
     MAX_DURATION_SECONDS = int(MAX_DURATION_SECONDS)
+
+if MAX_SIMULTANIOUS_REQUESTS:
+    MAX_SIMULTANIOUS_REQUESTS = int(MAX_SIMULTANIOUS_REQUESTS)
+
+if USER_RATE_LIMIT:
+    USER_RATE_LIMIT = int(USER_RATE_LIMIT)
+
+if USER_REQUEST_TIME:
+    USER_REQUEST_TIME = int(USER_REQUEST_TIME)
 
 # Define the maximum character limit for a single message
 MAX_MESSAGE_LENGTH = os.getenv('MAX_MESSAGE_LENGTH')
@@ -103,6 +119,21 @@ if not COMMAND_DIARIZE:
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
+
+request_count_semaphore = asyncio.Semaphore(1)
+rate_limit_semaphore = asyncio.Semaphore(1)
+
+# Global variable to keep track of simultaneous requests
+global_request_count = 0
+
+# Function to check the global request count
+async def check_request_count():
+    global global_request_count
+    async with request_count_semaphore:
+        return global_request_count
+
+# Dictionary to store user request queues based on timestamps
+user_request_queues = defaultdict(lambda: deque())
 
 # Add supports to python 3.7-3.8 (asyncio.to_thread)
 # Copied from source code: https://github.com/python/cpython/blob/main/Lib/asyncio/threads.py#L12
@@ -184,88 +215,139 @@ async def perform_api_request(data: bytes, id: str, msg: types.Message,
         await msg.edit_text("Text not recognized!")
 
 
-# Function to download and process audio file
+# Function to check and enforce request limits
+def request_limit():
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args):
+            message = args[0]
+            user = message.from_user
+            user_id = user.id
+            current_time = time.time()
+
+            # Acquire the rate limit semaphore
+            async with rate_limit_semaphore:
+                if USER_RATE_LIMIT and USER_REQUEST_TIME:
+                    # Get the user's request queue and remove old timestamps
+                    user_queue = user_request_queues[user_id]
+                    while user_queue and current_time - user_queue[0] > USER_REQUEST_TIME:
+                        user_queue.popleft()
+
+                    # Check if the user has exceeded the request limit
+                    if len(user_queue) >= USER_RATE_LIMIT:
+                        logger.info(f"User ID: {user_id}, Chat ID: {message.chat.id}, Username: {user.username}, Max request limit exceeded!")
+                        return await message.reply("You have exceeded the request limit. Please try again later.")
+
+                    # Add the current timestamp to the user's request queue
+                    user_queue.append(current_time)
+
+            return await func(*args)
+        return wrapper
+    return decorator
+
+
+# Function to download and process audio 
+@request_limit()
 async def process_file(message: types.Message, reply: bool, diarize: bool):
     user = message.from_user
     username = user.username
     user_id = user.id
     chat_id = message.chat.id
 
+    # Check the global request count
+    current_request_count = await check_request_count()
+    if MAX_SIMULTANIOUS_REQUESTS and current_request_count >= MAX_SIMULTANIOUS_REQUESTS:
+        logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Reached max request limit!")
+        await message.reply(f"Sorry, the maximum simultaneous request limit ({MAX_SIMULTANIOUS_REQUESTS}) has been reached. Please try again later.")
+        return
+
+    # Increment the global request count
+    global global_request_count
+    async with request_count_semaphore:
+        global_request_count += 1
+
     trigger_msg = message
     if reply:
         message = message.reply_to_message
 
-    file = message.voice or message.audio or message.video_note or message.video if message else None
+    try:
+        file = message.voice or message.audio or message.video_note or message.video if message else None
 
-    if file:
-        logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
+        if file:
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
 
-        file_id = file.file_id
+            file_id = file.file_id
 
-        # Check file size
-        if MAX_FILE_SIZE and file.file_size > MAX_FILE_SIZE:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
-            await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
-            return
-
-        # Check file duration for voice messages
-        if hasattr(file, "duration") and MAX_DURATION_SECONDS and file.duration > MAX_DURATION_SECONDS:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Duration exceeds the limit")
-            await message.reply(f"Duration exceeds the {MAX_DURATION_SECONDS} seconds limit! Please send a shorter version!")
-            return
-
-        # Request file path
-        try:
-            file_requested = await bot.get_file(file_id)
-            file_path = file_requested.file_path
-
-            # Double-Check file size
-            if MAX_FILE_SIZE and file_requested.file_size > MAX_FILE_SIZE:
+            # Check file size
+            if MAX_FILE_SIZE and file.file_size > MAX_FILE_SIZE:
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
                 await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
                 return
-        except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Can't request file: {file_id}, {str(e)}")
-            await message.reply("Error requesting file data!")
-            return
 
-        # Check file extension
-        last_dot_index = file_path.rfind('.')
-        if last_dot_index == -1:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unknown file extension")
-            await message.reply("Unknown file extension!")
-            return
+            # Check file duration for voice messages
+            if hasattr(file, "duration") and MAX_DURATION_SECONDS and file.duration > MAX_DURATION_SECONDS:
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Duration exceeds the limit")
+                await message.reply(f"Duration exceeds the {MAX_DURATION_SECONDS} seconds limit! Please send a shorter version!")
+                return
 
-        file_extension = file_path[last_dot_index + 1:].lower()
-        if not file_extension in SUPPORTED_FILE_EXTENSIONS:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unsupported file format: {file_extension}")
-            await message.reply(f"Unsupported file format: {file_extension}")
-            return
+            # Request file path
+            try:
+                file_requested = await bot.get_file(file_id)
+                file_path = file_requested.file_path
 
-        msg = await message.reply("Downloading file...")
+                # Double-Check file size
+                if MAX_FILE_SIZE and file_requested.file_size > MAX_FILE_SIZE:
+                    logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
+                    await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
+                    return
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Can't request file: {file_id}, {str(e)}")
+                await message.reply("Error requesting file data!")
+                return
 
-        # Download the voice message
-        try:
-            file_content = await bot.download_file(file_path)
-            data = file_content.read()
-        except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file_id}, {str(e)}")
-            await msg.edit_text("Error downloading the file!")
-            return
+            # Check file extension
+            last_dot_index = file_path.rfind('.')
+            if last_dot_index == -1:
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unknown file extension")
+                await message.reply("Unknown file extension!")
+                return
 
-        if diarize:
-            await msg.edit_text("Diarizing...")
+            file_extension = file_path[last_dot_index + 1:].lower()
+            if not file_extension in SUPPORTED_FILE_EXTENSIONS:
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unsupported file format: {file_extension}")
+                await message.reply(f"Unsupported file format: {file_extension}")
+                return
+
+            msg = await message.reply("Downloading file...")
+
+            # Download the voice message
+            try:
+                file_content = await bot.download_file(file_path)
+                data = file_content.read()
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file_id}, {str(e)}")
+                await msg.edit_text("Error downloading the file!")
+                return
+
+            if diarize:
+                await msg.edit_text("Diarizing...")
+            else:
+                await msg.edit_text("Transcribing...")
+
+            # Make api request
+            await perform_api_request(data, file.file_id, msg, user_id, username, chat_id, diarize)
+        elif diarize:
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid diarize message: {trigger_msg.message_id}")
+            await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_DIARIZE} to diarize it.")
         else:
-            await msg.edit_text("Transcribing...")
-
-        # Make api request
-        await perform_api_request(data, file.file_id, msg, user_id, username, chat_id, diarize)
-    elif diarize:
-        logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid diarize message: {trigger_msg.message_id}")
-        await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_DIARIZE} to diarize it.")
-    else:
-        logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid transcribe message: {trigger_msg.message_id}")
-        await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_TRANSCRIBE} to transcribe it.")
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid transcribe message: {trigger_msg.message_id}")
+            await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_TRANSCRIBE} to transcribe it.")
+    except Exception as e:
+        logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error: {str(e)}")
+        await trigger_msg.reply(f"Error happened!")
+    finally:
+        async with request_count_semaphore:
+            global_request_count -= 1
 
 
 # Function to get bot settings

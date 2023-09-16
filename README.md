@@ -40,6 +40,10 @@ This is a Telegram bot that provides speech recognition services using the Gradi
 
 You can set your own commands for transcribing and diarization, max file size and duration. Also you can enable "instant reply in groups" option that allow bot to trigger to every voice, video, audio messages and get transcription of it. You can configuire logs params.
 
+## Protection
+
+You can set up requests limits for users and for simultaneous API requests. It will protect you from DDOS attacks and voice messages spamming.
+
 ## Logging
 
 The bot logs user timestamps, information, chat details, usernames, API requests and results. Log messages are printed to the console and saved in a log file for reference.
