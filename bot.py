@@ -65,6 +65,8 @@ else:
 api_transcribe_semaphore = asyncio.Semaphore(1)
 api_diarize_semaphore = asyncio.Semaphore(1)
 
+processing_requests = asyncio.Queue()
+
 # Set log format
 if not LOG_FORMAT:
     LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -90,21 +92,21 @@ if LOG_FILENAME:
 else:
     logger.warning("LOG_FILENAME not set! Logging to the file disabled!")
 
-if not API_URL_TRANSCRIBE:
-    logger.warning("API_URL_TRANSCRIBE not set! Bot can't transribe audio!")
-else:
+if API_URL_TRANSCRIBE:
     try:
         gradio_transcribe = Client(API_URL_TRANSCRIBE, hf_token=HF_TOKEN_TRANSCRIBE)
     except Exception as e:
         logger.error(f"API Transcribe Connect error: {str(e)}")
-
-if not API_URL_DIARIZE:
-    logger.warning("API_URL_DIARIZE not set! Bot can't diarize audio!")
 else:
+    logger.warning("API_URL_TRANSCRIBE not set! Bot can't transribe audio!")
+
+if API_URL_DIARIZE:
     try:
         gradio_diarize = Client(API_URL_DIARIZE, hf_token=HF_TOKEN_DIARIZE)
     except Exception as e:
         logger.error(f"API Diarize Connect error: {str(e)}")
+else:
+    logger.warning("API_URL_DIARIZE not set! Bot can't diarize audio!")
 
 if not TELEGRAM_BOT_TOKEN:
     logger.error("TELEGRAM_BOT_TOKEN not set! App will crash soon...")
@@ -115,16 +117,19 @@ if not COMMAND_TRANSCRIBE:
 
 if not COMMAND_DIARIZE:
     logger.warning("Bot diarize command not set! Using default /diarize command!")
-    COMMAND_TRANSCRIBE = "diarize"
+    COMMAND_DIARIZE = "diarize"
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
 request_count_semaphore = asyncio.Semaphore(1)
 rate_limit_semaphore = asyncio.Semaphore(1)
+request_delay_semaphore = asyncio.Semaphore(1)
 
 # Global variable to keep track of simultaneous requests
 global_request_count = 0
+
+request_delay = 0
 
 # Function to check the global request count
 async def check_request_count():
@@ -167,7 +172,7 @@ async def send_long_message(msg: types.Message, text: str):
         if "msg_next" in locals():
             await msg_next.reply("Sending long message error!")
         else:
-            msg.reply("Sending long message error!")
+            await msg.reply("Sending long message error!")
 
 
 # Function to perform the API request with retries
@@ -246,9 +251,7 @@ def request_limit():
     return decorator
 
 
-# Function to download and process audio 
-@request_limit()
-async def process_file(message: types.Message, reply: bool, diarize: bool):
+async def get_file(message: types.Message, reply: bool):
     user = message.from_user
     username = user.username
     user_id = user.id
@@ -261,93 +264,77 @@ async def process_file(message: types.Message, reply: bool, diarize: bool):
         await message.reply(f"Sorry, the maximum simultaneous request limit ({MAX_SIMULTANIOUS_REQUESTS}) has been reached. Please try again later.")
         return
 
-    # Increment the global request count
-    global global_request_count
-    async with request_count_semaphore:
-        global_request_count += 1
-
     trigger_msg = message
     if reply:
         message = message.reply_to_message
 
     try:
         file = message.voice or message.audio or message.video_note or message.video if message else None
+        if not file:
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid message: {trigger_msg.message_id}")
+            await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_DIARIZE} or /{COMMAND_TRANSCRIBE}")
+            return
 
-        if file:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
+        logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Requested: {file.file_id}")
 
-            file_id = file.file_id
+        file_id = file.file_id
 
-            # Check file size
-            if MAX_FILE_SIZE and file.file_size > MAX_FILE_SIZE:
+        # Check file size
+        if MAX_FILE_SIZE and file.file_size > MAX_FILE_SIZE:
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
+            await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
+            return
+
+        # Check file duration for voice messages
+        if hasattr(file, "duration") and MAX_DURATION_SECONDS and file.duration > MAX_DURATION_SECONDS:
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Duration exceeds the limit")
+            await message.reply(f"Duration exceeds the {MAX_DURATION_SECONDS} seconds limit! Please send a shorter version!")
+            return
+
+        # Request file path
+        try:
+            file_requested = await bot.get_file(file_id)
+            file_path = file_requested.file_path
+
+            # Double-Check file size
+            if MAX_FILE_SIZE and file_requested.file_size > MAX_FILE_SIZE:
                 logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
                 await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
                 return
+        except Exception as e:
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Can't request file: {file_id}, {str(e)}")
+            await message.reply("Error requesting file data!")
+            return
 
-            # Check file duration for voice messages
-            if hasattr(file, "duration") and MAX_DURATION_SECONDS and file.duration > MAX_DURATION_SECONDS:
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Duration exceeds the limit")
-                await message.reply(f"Duration exceeds the {MAX_DURATION_SECONDS} seconds limit! Please send a shorter version!")
-                return
+        # Check file extension
+        last_dot_index = file_path.rfind('.')
+        if last_dot_index == -1:
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unknown file extension")
+            await message.reply("Unknown file extension!")
+            return
 
-            # Request file path
-            try:
-                file_requested = await bot.get_file(file_id)
-                file_path = file_requested.file_path
+        file_extension = file_path[last_dot_index + 1:].lower()
+        if not file_extension in SUPPORTED_FILE_EXTENSIONS:
+            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unsupported file format: {file_extension}")
+            await message.reply(f"Unsupported file format: {file_extension}")
+            return
 
-                # Double-Check file size
-                if MAX_FILE_SIZE and file_requested.file_size > MAX_FILE_SIZE:
-                    logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, File exceeds size the limit")
-                    await message.reply(f"File size exceeds the {MAX_FILE_SIZE / (1024 * 1024):.1f} MB limit! Please send a smaller file.")
-                    return
-            except Exception as e:
-                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Can't request file: {file_id}, {str(e)}")
-                await message.reply("Error requesting file data!")
-                return
+        msg = await message.reply("Downloading file...")
 
-            # Check file extension
-            last_dot_index = file_path.rfind('.')
-            if last_dot_index == -1:
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unknown file extension")
-                await message.reply("Unknown file extension!")
-                return
-
-            file_extension = file_path[last_dot_index + 1:].lower()
-            if not file_extension in SUPPORTED_FILE_EXTENSIONS:
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {file_id}, Unsupported file format: {file_extension}")
-                await message.reply(f"Unsupported file format: {file_extension}")
-                return
-
-            msg = await message.reply("Downloading file...")
-
-            # Download the voice message
-            try:
-                file_content = await bot.download_file(file_path)
-                data = file_content.read()
-            except Exception as e:
-                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file_id}, {str(e)}")
-                await msg.edit_text("Error downloading the file!")
-                return
-
-            if diarize:
-                await msg.edit_text("Diarizing...")
-            else:
-                await msg.edit_text("Transcribing...")
-
-            # Make api request
-            await perform_api_request(data, file.file_id, msg, user_id, username, chat_id, diarize)
-        elif diarize:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid diarize message: {trigger_msg.message_id}")
-            await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_DIARIZE} to diarize it.")
-        else:
-            logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Invalid transcribe message: {trigger_msg.message_id}")
-            await trigger_msg.reply(f"Please reply to a voice, audio, video message with /{COMMAND_TRANSCRIBE} to transcribe it.")
+        # Download the voice message
+        try:
+            file_content = await bot.download_file(file_path)
+            data = file_content.read()
+        except Exception as e:
+            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error downloading: {file_id}, {str(e)}")
+            await msg.edit_text("Error downloading the file!")
+            return
     except Exception as e:
         logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error: {str(e)}")
         await trigger_msg.reply(f"Error happened!")
-    finally:
-        async with request_count_semaphore:
-            global_request_count -= 1
+        return
+
+    return data, msg, file.file_id
 
 
 # Function to get bot settings
@@ -362,11 +349,52 @@ def get_bot_settings():
                 Bold(MAX_DURATION_SECONDS, " seconds") if MAX_DURATION_SECONDS else Bold("unlimited"),
                 "\n\nInstant reply in groups: ",
                 Bold("enabled" if INSTANT_REPLY_IN_GROUPS else "disabled"),
-                "\n\nSupported files: ",
-                Bold(', '.join(SUPPORTED_FILE_EXTENSIONS)),
+                "\nMax simultaneous requests: ",
+                Bold(MAX_SIMULTANIOUS_REQUESTS),
                 "\n", "-" * 30, "\n",
                 "Send a voice, audio, video message or reply to it using commands!"
             )
+
+
+# Function to process requests
+@request_limit()
+async def process_request(message: types.Message, reply=False, diarize=False):
+    try:
+        # Make 50ms delay for saving responce message order for multiple messages in a time
+        global request_delay
+        async with request_delay_semaphore:
+            request_delay += 1
+            delay = request_delay
+
+        if delay:
+            await asyncio.sleep(delay * 0.05)
+
+        async with request_delay_semaphore:
+            request_delay -= 1
+
+        # Increment the global request count
+        global global_request_count
+        async with request_count_semaphore:
+            global_request_count += 1
+
+        result = await get_file(message, reply)
+        if not result:
+            return
+
+        data, msg, fileid = result
+
+        if diarize:
+            await msg.edit_text("Diarizing...")
+        else:
+            await msg.edit_text("Transcribing...")
+
+        user = message.from_user
+        await perform_api_request(data, fileid, msg, user.id, user.username, message.chat.id, diarize)
+    except Exception as e:
+        logger.error(f"User ID: {user.id}, Chat ID: {message.chat.id}, Username: {user.username}, Processing error: {str(e)}")
+    finally:
+        async with request_count_semaphore:
+            global_request_count -= 1
 
 
 # Function to handle start commands
@@ -388,13 +416,13 @@ async def transcribe_command(message: types.Message):
 # Function to handle COMMAND_TRANSCRIBE
 @dp.message(Command(COMMAND_TRANSCRIBE))
 async def transcribe_command(message: types.Message):
-    await process_file(message, True, False)
+    await process_request(message, True, False)
 
 
 # Function to handle COMMAND_DIARIZE
 @dp.message(Command(COMMAND_DIARIZE))
 async def diarize_command(message: types.Message):
-    await process_file(message, True, True)
+    await process_request(message, True, True)
 
 
 # Function to handle direct voice messages
@@ -402,7 +430,7 @@ async def diarize_command(message: types.Message):
 async def voice_message(message: types.Message):
     if message.content_type in {'voice', 'audio', 'video_note', 'video'}:
         if message.chat.type == 'private' or INSTANT_REPLY_IN_GROUPS:
-            await process_file(message, False, False)
+            await process_request(message, False, False)
     elif message.chat.type == 'private':
         user = message.from_user
         logger.info(f"User ID: {user.id}, Chat ID: {message.chat.id}, Username: {user.username}, Sended invalid message: {message.message_id}")
