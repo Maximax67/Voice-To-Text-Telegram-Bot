@@ -65,7 +65,9 @@ else:
 api_transcribe_semaphore = asyncio.Semaphore(1)
 api_diarize_semaphore = asyncio.Semaphore(1)
 
-processing_requests = asyncio.Queue()
+# Requests queues
+transcribe_request_queue = asyncio.Queue()
+diarize_request_queue = asyncio.Queue()
 
 # Set log format
 if not LOG_FORMAT:
@@ -129,6 +131,7 @@ request_delay_semaphore = asyncio.Semaphore(1)
 # Global variable to keep track of simultaneous requests
 global_request_count = 0
 
+# Variable to make delay for replying to messages in order
 request_delay = 0
 
 # Function to check the global request count
@@ -175,6 +178,62 @@ async def send_long_message(msg: types.Message, text: str):
             await msg.reply("Sending long message error!")
 
 
+# Fuction to process transcribe API queue
+async def transcribe_queue_process():
+    while True:
+        async with api_transcribe_semaphore:
+            ## Get the message and its arguments from the queue
+            audio, msg, user_id, chat_id, username = await transcribe_request_queue.get()
+            await msg.edit_text("Transcribing...")
+
+            try:
+                result = await to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {audio['name']}, Result: {result}")
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {audio['name']}, Transcribe API error: {str(e)}")
+                await msg.edit_text("Transcribe API error!")
+                continue
+
+            try:
+                if len(result) <= MAX_MESSAGE_LENGTH:
+                    await msg.edit_text(result)
+                elif result:
+                    await send_long_message(msg, result)
+                else:
+                    await msg.edit_text("Text not recognized!")
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {audio['name']}, Error sending result: {str(e)}")
+                await msg.edit_text("Error sending result!")
+
+
+# Fuction to process diarize API queue
+async def diarize_queue_process():
+    while True:
+        async with api_diarize_semaphore:
+            # Get the message and its arguments from the queue
+            audio, msg, user_id, chat_id, username = await diarize_request_queue.get()
+            await msg.edit_text("Diarizing...")
+
+            try:
+                result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
+                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {audio['name']}, Result: {result}")
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {audio['name']}, Diarize API error: {str(e)}")
+                await msg.edit_text("Diarize API error!")
+                continue
+
+            try:
+                if len(result) <= MAX_MESSAGE_LENGTH:
+                    await msg.edit_text(result)
+                elif result:
+                    await send_long_message(msg, result)
+                else:
+                    await msg.edit_text("Text not recognized!")
+            except Exception as e:
+                logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, Error sending result: {str(e)}")
+                await msg.edit_text("Error sending result!")
+
+
 # Function to perform the API request with retries
 async def perform_api_request(data: bytes, id: str, msg: types.Message,
                                 user_id: int, username: str, chat_id: int, diarize: bool):
@@ -194,30 +253,13 @@ async def perform_api_request(data: bytes, id: str, msg: types.Message,
     }
 
     if diarize:
-        try:
-            async with api_diarize_semaphore:
-                result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, Diarized: {result}")
-        except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Diarize Error: {str(e)}")
-            await msg.edit_text("Diarize API error!")
-            return
+        if diarize_request_queue.qsize():
+            await msg.edit_text("Queued! Please wait!")
+        await diarize_request_queue.put((audio, msg, user_id, chat_id, username))
     else:
-        try:
-            async with api_transcribe_semaphore:
-                result = await to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
-                logger.info(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, Transcribed: {result}")
-        except Exception as e:
-            logger.error(f"User ID: {user_id}, Chat ID: {chat_id}, Username: {username}, File: {id}, API Transcribe Error: {str(e)}")
-            await msg.edit_text("Transcribe API error!")
-            return
-
-    if len(result) <= MAX_MESSAGE_LENGTH:
-        await msg.edit_text(result)
-    elif result:
-        await send_long_message(msg, result)
-    else:
-        await msg.edit_text("Text not recognized!")
+        if transcribe_request_queue.qsize():
+            await msg.edit_text("Queued! Please wait!")
+        await transcribe_request_queue.put((audio, msg, user_id, chat_id, username))
 
 
 # Function to check and enforce request limits
@@ -367,7 +409,7 @@ async def process_request(message: types.Message, reply=False, diarize=False):
             delay = request_delay
 
         if delay:
-            await asyncio.sleep(delay * 0.05)
+            await asyncio.sleep(delay * 0.2)
 
         async with request_delay_semaphore:
             request_delay -= 1
@@ -382,11 +424,6 @@ async def process_request(message: types.Message, reply=False, diarize=False):
             return
 
         data, msg, fileid = result
-
-        if diarize:
-            await msg.edit_text("Diarizing...")
-        else:
-            await msg.edit_text("Transcribing...")
 
         user = message.from_user
         await perform_api_request(data, fileid, msg, user.id, user.username, message.chat.id, diarize)
@@ -440,10 +477,14 @@ async def voice_message(message: types.Message):
 async def main():
     logger.info("App started!")
     try:
+        asyncio.create_task(diarize_queue_process())
+        asyncio.create_task(transcribe_queue_process())
         await dp.start_polling(bot)
     except Exception as e:
         logger.error(f"App Error: {str(e)}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Start the event loop
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
