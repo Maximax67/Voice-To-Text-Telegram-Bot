@@ -1,6 +1,7 @@
 # Voice To Text Telegram Bot
 
 [![License](https://img.shields.io/github/license/Maximax67/Voice-To-Text-Telegram-Bot)](https://github.com/Maximax67/Voice-To-Text-Telegram-Bot/blob/main/LICENSE)
+[![Telegram Bot](https://img.shields.io/badge/Telegram-Voice%20To%20Text%20Bot-blue.svg?logo=telegram)](https://t.me/maximax_voice_bot)
 
 This is a Telegram bot that provides speech recognition services using the Gradio API space. You can send voice, audio, video, video-noted directly to the bot, or you can reply to the message with the `/text` command (by default) to receive a transcription of it. Also you can get speaker diarization using `/diarize` command (by default).
 
@@ -43,6 +44,15 @@ You can set your own commands for transcribing and diarization, max file size an
 ## Protection
 
 You can set up requests limits for users and for simultaneous API requests. It will protect you from DDOS attacks and voice messages spamming.
+
+## Admin commands
+
+To set admin users' or chat IDs, update the .env file. These users are authorized to execute admin commands, including:
+* `/logsfile` to retrieve the entire log file.
+* `/logs N` to retrieve the last `N` lines of the log file.
+* `/file file_id` to access files requested by users. The file ID is displayed in the logs.
+* `/broadcast id1,id2,id3 message` to broadcast the `message` to all users `id` and chats `id` separated by comma.
+* `/adminbroadcast message` to broadcast the `message` to all admins and admin chats.
 
 ## Logging
 
