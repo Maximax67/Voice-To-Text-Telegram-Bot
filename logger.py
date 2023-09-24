@@ -1,4 +1,5 @@
 import logging
+from messages.log.other import LOGGING_WITHOUT_FILE
 from config import LOG_FILENAME, LOG_FORMAT
 
 
@@ -18,4 +19,4 @@ if LOG_FILENAME:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 else:
-    logger.warning("LOG_FILENAME not set! Logging to the file disabled!")
+    logger.warning(LOGGING_WITHOUT_FILE)

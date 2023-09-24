@@ -57,3 +57,5 @@ To set admin users' or chat IDs, update the .env file. These users are authorize
 ## Logging
 
 The bot logs user timestamps, information, chat details, usernames, API requests and results. Log messages are printed to the console and saved in a log file for reference.
+
+You can set your own log format in .env file. Also you can change logging templates by changing values in files in messages/telegram folder.

@@ -1,3 +1,4 @@
+import re
 import asyncio
 import contextvars
 from functools import partial
@@ -6,6 +7,9 @@ from aiogram.utils.formatting import Text, Bold
 
 from bot_init import bot
 from logger import logger
+from messages.log.handlers import ADMIN_BROADCAST_FAIL
+from messages.log.other import LONG_MESSAGE_SEND_ERROR, LOG_FILE_NOT_FOUND, LOG_FILE_READ_ERROR
+from messages.telegram.other import TG_LONG_MESSAGE_SEND_ERROR
 from config import COMMAND_TRANSCRIBE, COMMAND_DIARIZE, INSTANT_REPLY_IN_GROUPS, ADMIN_ID, MAX_FILE_SIZE, \
                     MAX_DURATION_SECONDS, MAX_SIMULTANIOUS_REQUESTS, USER_RATE_LIMIT, USER_REQUEST_TIME, MAX_MESSAGE_LENGTH
 
@@ -41,11 +45,11 @@ async def send_long_message(msg: types.Message, text: str, new_reply=True):
                 # Send subsequent parts as replies to the previous message
                 msg_next = await msg_next.reply(part)
     except Exception as e:
-        logger.error(f"Sending long message error: {str(e)}")
+        logger.error(LONG_MESSAGE_SEND_ERROR.format(str(e)))
         if "msg_next" in locals():
-            await msg_next.reply("Sending long message error!")
+            await msg_next.reply(TG_LONG_MESSAGE_SEND_ERROR)
         else:
-            await msg.reply("Sending long message error!")
+            await msg.reply(TG_LONG_MESSAGE_SEND_ERROR)
 
 
 # Function to get bot settings
@@ -90,10 +94,10 @@ def get_last_n_lines(filename: str, n: int):
             else:
                 return lines[-n:]
     except FileNotFoundError:
-        logger.error("A | Log file not found!")
+        logger.error(LOG_FILE_NOT_FOUND)
         return []
     except Exception as e:
-        logger.error(f"A | Get last logs file error: {str(e)}")
+        logger.error(LOG_FILE_READ_ERROR.format(n, str(e)))
         return []
 
 
@@ -120,6 +124,15 @@ async def send_message_to_admins(text: str, skip: list[int]):
             await bot.send_message(admin, text)
         except Exception as e:
             failed.append(admin)
-            logger.error(f"A | Message didn't broadcast to {admin}: {str(e)}")
+            logger.error(ADMIN_BROADCAST_FAIL.format(admin, str(e)))
 
     return failed
+
+
+# Highlight important parts of logs with monospace (code) style
+def logs_formatter(logs: list[str]):
+    # Define a regular expression pattern for finding parts to highlight
+    pattern = r'(User ID:|Chat ID:|Username:|File:) ([\w-]+)'
+    for i in range(len(logs)):
+        # Find and format matches in the log message
+        logs[i] = re.sub(pattern, r'\1 <code>\2</code>', logs[i])

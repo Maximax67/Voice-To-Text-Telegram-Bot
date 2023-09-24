@@ -4,6 +4,8 @@ from functools import wraps
 from collections import defaultdict, deque
 
 from logger import logger
+from messages.log.other import REQUEST_LIMIT
+from messages.telegram.other import TG_RATE_LIMIT_EXCEEDED
 from config import USER_RATE_LIMIT, USER_REQUEST_TIME
 
 rate_limit_semaphore = asyncio.Semaphore(1)
@@ -75,8 +77,8 @@ def request_limit():
 
                     # Check if the user has exceeded the request limit
                     if len(user_queue) >= USER_RATE_LIMIT:
-                        logger.info(f"User ID: {user_id}, Chat ID: {message.chat.id}, Username: {user.username}, Max request limit exceeded!")
-                        return await message.reply("You have exceeded the request limit. Please try again later.")
+                        logger.info(REQUEST_LIMIT.format(user_id, message.chat.id, user.username))
+                        return await message.reply(TG_RATE_LIMIT_EXCEEDED)
 
                     # Add the current timestamp to the user's request queue
                     user_queue.append(current_time)
