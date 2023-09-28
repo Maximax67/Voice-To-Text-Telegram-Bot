@@ -51,8 +51,8 @@ To set admin users' or chat IDs, update the .env file. These users are authorize
 * `/logsfile` to retrieve the entire log file.
 * `/logs N` to retrieve the last `N` lines of the log file.
 * `/file file_id` to access files requested by users. The file ID is displayed in the logs.
-* `/broadcast id1,id2,id3 message` to broadcast the `message` to all users `id` and chats `id` separated by comma.
-* `/adminbroadcast message` to broadcast the `message` to all admins and admin chats.
+* `/broadcast id1,id2,id3 message` to broadcast the `message` to all users `id` and chats `id` separated by comma. If some message was replied with that command, it will be forwarded to all selected users and chats. Specify `message` in that case is not necessary.
+* `/adminbroadcast message` to broadcast the `message` to all admins and admin chats. If some message was replied with that command, it will be forwarded to all admins. Specify `message` in that case is not necessary.
 
 ## Logging
 

@@ -7,7 +7,7 @@ from aiogram.utils.formatting import Text, Bold
 
 from bot_init import bot
 from logger import logger
-from messages.log.handlers import ADMIN_BROADCAST_FAIL
+from messages.log.handlers import ADMIN_BROADCAST_FAIL, ADMIN_BROADCAST_FORWARD_FAIL
 from messages.log.other import LONG_MESSAGE_SEND_ERROR, LOG_FILE_NOT_FOUND, LOG_FILE_READ_ERROR
 from messages.telegram.other import TG_LONG_MESSAGE_SEND_ERROR
 from config import COMMAND_TRANSCRIBE, COMMAND_DIARIZE, INSTANT_REPLY_IN_GROUPS, ADMIN_ID, MAX_FILE_SIZE, \
@@ -122,6 +122,7 @@ async def send_message_to_admins(text: str, skip: list[int]):
 
         try:
             await bot.send_message(admin, text)
+            await asyncio.sleep(0.1)
         except Exception as e:
             failed.append(admin)
             logger.error(ADMIN_BROADCAST_FAIL.format(admin, str(e)))
@@ -129,10 +130,35 @@ async def send_message_to_admins(text: str, skip: list[int]):
     return failed
 
 
+# Forward message to all admins
+async def forward_message_to_admins(message: types.Message, skip: list[int]):
+    if not ADMIN_ID:
+        return []
+
+    failed = []
+    for admin in ADMIN_ID:
+        if admin in skip:
+            continue
+
+        try:
+            await message.forward(admin)
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            failed.append(admin)
+            logger.error(ADMIN_BROADCAST_FORWARD_FAIL.format(admin, str(e)))
+
+    return failed
+
+
 # Highlight important parts of logs with monospace (code) style
 def logs_formatter(logs: list[str]):
     # Define a regular expression pattern for finding parts to highlight
-    pattern = r'(User ID:|Chat ID:|Username:|File:) ([\w-]+)'
+    pattern = r'(User ID:|Chat ID:|Username:|File:|Requested:) ([\w-]+)'
+
+    # Define a regular expression pattern for wrapping result and broadcasted texts
+    result_pattern = r'(Result:|Broadcasted:) (.+)'
+
     for i in range(len(logs)):
         # Find and format matches in the log message
         logs[i] = re.sub(pattern, r'\1 <code>\2</code>', logs[i])
+        logs[i] = re.sub(result_pattern, r'\1 <code>\2</code>', logs[i])

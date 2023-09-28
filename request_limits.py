@@ -78,7 +78,11 @@ def request_limit():
                     # Check if the user has exceeded the request limit
                     if len(user_queue) >= USER_RATE_LIMIT:
                         logger.info(REQUEST_LIMIT.format(user_id, message.chat.id, user.username))
-                        return await message.reply(TG_RATE_LIMIT_EXCEEDED)
+
+                        if len(user_queue) == USER_RATE_LIMIT:
+                            await message.reply(TG_RATE_LIMIT_EXCEEDED)
+
+                        return
 
                     # Add the current timestamp to the user's request queue
                     user_queue.append(current_time)

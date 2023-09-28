@@ -14,8 +14,12 @@ TG_ADMIN_BROADCAST_INVALID_FORMAT = "Please provide a message with the command i
 TG_ADMIN_BROADCAST_UNIMPORTANT = "You don't need to make a broadcast as you can print message directly in this chat!"
 TG_ADMIN_BROADCAST_FAIL = "Could not broadcast for: {}!\nBroadcasted to {}/{} admins and chat admins!"
 TG_ADMIN_BROADCAST_SUCCESS = "Broadcasted successfully to {} admins and chat admins!"
+TG_ADMIN_BROADCAST_FORWARD_FAIL = "Could not forward your replied message for: {}!\nBroadcasted to {}/{} admins and chat admins!"
+TG_ADMIN_BROADCAST_FORWARD_SUCCESS = "Forwarded successfully to {} admins and chat admins!"
 
 TG_BROADCAST_INVALID_FORMAT = "Please provide a message with the command in the format /broadcast id1,id2,id3 message"
 TG_BROADCAST_INVALID_IDS = "Invalid broadcast ids! Not ints!"
 TG_BROADCAST_FAIL = "Could not broadcast for: {}!\nBroadcasted to {}/{} user and chats!"
 TG_BROADCAST_SUCCESS = "Broadcasted successfully to {} users and chats!"
+TG_BROADCAST_FORWARD_FAIL = "Could not forward your replied message for: {}!\nBroadcasted to {}/{} user and chats!"
+TG_BROADCAST_FORWARD_SUCCESS = "Forwarded successfully to {} users and chats!"
