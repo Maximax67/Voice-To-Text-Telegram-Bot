@@ -7,6 +7,7 @@ TG_API_TRANSCRIBE_ERROR = "Transcribe API error!"
 TG_API_TRANSCRIBE_SEND_ERROR = "Error sending result!"
 
 TG_API_DIARIZE_ERROR = "Diarize API error!"
+TG_API_DIARIZE_NO_SPEAKERS_ERROR = "No speakers detected! Please try transcribe instead!"
 TG_API_DIARIZE_SEND_ERROR = "Error sending result!"
 
 TG_API_NO_TEXT = "Text not recognized!"

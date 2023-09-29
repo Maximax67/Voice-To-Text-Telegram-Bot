@@ -81,6 +81,7 @@ def request_limit():
 
                         if len(user_queue) == USER_RATE_LIMIT:
                             await message.reply(TG_RATE_LIMIT_EXCEEDED)
+                            user_queue.append(current_time)
 
                         return
 

@@ -174,7 +174,7 @@ async def send_logs(message: types.Message):
     if len(str_result) <= MAX_MESSAGE_LENGTH:
         await message.reply(str_result, parse_mode="HTML")
     else:
-        await send_long_message(message, str_result)
+        await send_long_message(message, str_result, parse_mode="HTML")
 
 
 # Function to handle file commands

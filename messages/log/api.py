@@ -17,4 +17,5 @@ TRANSCRIBE_SENDING_ERROR = U_PREFIX + "File: {}, Error sending result: {}"
 
 DIARIZE_RESULT = U_PREFIX + "File: {}, Result: {}"
 DIARIZE_ERROR = U_PREFIX + "File: {}, Diarize API error: {}"
+DIARIZE_NO_SPEAKERS_ERROR = U_PREFIX + "File: {}, Diarize API no speakers detected error!"
 DIARIZE_SENDING_ERROR = U_PREFIX + "File: {}, Error sending result: {}"

@@ -109,8 +109,13 @@ async def diarize_queue_process():
                 result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
                 logger.info(DIARIZE_RESULT.format(user_id, chat_id, username, audio['name'], result))
             except Exception as e:
-                logger.error(DIARIZE_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
-                await msg.edit_text(TG_API_DIARIZE_ERROR)
+                if e:
+                    logger.error(DIARIZE_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
+                    await msg.edit_text(TG_API_DIARIZE_ERROR)
+                else:
+                    logger.error(DIARIZE_NO_SPEAKERS_ERROR.format(user_id, chat_id, username, audio['name']))
+                    await msg.edit_text(TG_API_DIARIZE_NO_SPEAKERS_ERROR)
+
                 continue
 
             try:

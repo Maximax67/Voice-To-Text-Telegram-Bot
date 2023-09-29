@@ -24,7 +24,7 @@ async def to_thread(func, /, *args, **kwargs):
 
 
 # Function to send a long message split into multiple parts
-async def send_long_message(msg: types.Message, text: str, new_reply=True):
+async def send_long_message(msg: types.Message, text: str, new_reply=True, parse_mode=None):
     try:
         # Calculate the number of parts needed
         num_parts = (len(text) - 1) // MAX_MESSAGE_LENGTH + 1
@@ -38,12 +38,12 @@ async def send_long_message(msg: types.Message, text: str, new_reply=True):
             if i == 0:
                 # Send the first part as a new message
                 if new_reply:
-                    msg_next = await msg.reply(part)
+                    msg_next = await msg.reply(part, parse_mode=parse_mode)
                 else:
-                    msg_next = await msg.edit_text(part)
+                    msg_next = await msg.edit_text(part, parse_mode=parse_mode)
             else:
                 # Send subsequent parts as replies to the previous message
-                msg_next = await msg_next.reply(part)
+                msg_next = await msg_next.reply(part, parse_mode=parse_mode)
     except Exception as e:
         logger.error(LONG_MESSAGE_SEND_ERROR.format(str(e)))
         if "msg_next" in locals():
