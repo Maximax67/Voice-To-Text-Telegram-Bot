@@ -53,6 +53,9 @@ To set admin users' or chat IDs, update the .env file. These users are authorize
 * `/file file_id` to access files requested by users. The file ID is displayed in the logs.
 * `/broadcast id1,id2,id3 message` to broadcast the `message` to all users `id` and chats `id` separated by comma. If some message was replied with that command, it will be forwarded to all selected users and chats. Specify `message` in that case is not necessary.
 * `/adminbroadcast message` to broadcast the `message` to all admins and admin chats. If some message was replied with that command, it will be forwarded to all admins. Specify `message` in that case is not necessary.
+* `/chatid` to get chat id where the command was sent.
+* `/disable` to make bot available only for admins.
+* `/enable` to make bot available for everyone (default state on startup).
 
 ## Logging
 

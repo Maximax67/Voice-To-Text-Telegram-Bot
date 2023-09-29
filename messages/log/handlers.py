@@ -1,5 +1,8 @@
 from messages.log.default import ADMIN_COMMAND, A_PREFIX, U_PREFIX
 
+DISABLED = U_PREFIX + "Tried to use bot while disabled!"
+DISABLED_BYPASS = A_PREFIX + "Admin bypassed disabled state!"
+
 START_COMMAND = U_PREFIX + "Used start command"
 HELP_COMMAND = U_PREFIX + "Used help command"
 
@@ -35,3 +38,14 @@ BROADCAST_ID_ERROR = A_PREFIX + "Invalid broadcast ids: {}!"
 BROADCAST_MESSAGE = A_PREFIX + "Broadcasted: {}"
 BROADCAST_FAIL = ADMIN_COMMAND + "Message didn't broadcast to {}: {}"
 BROADCAST_FORWARD_FAIL = ADMIN_COMMAND + "Message didn't forwarded to {}: {}"
+
+GET_CHAT_ID_NOT_ADMIN = A_PREFIX + "Tried to get chat info!"
+GET_CHAT_ID_INFO = A_PREFIX + "Get chat info!"
+
+DISABLE_NOT_ADMIN = A_PREFIX + "Tried to use disable command!"
+DISABLE_WHEN_DISABLED = A_PREFIX + "Bot is already disabled!"
+DISABLE_SUCCESS = A_PREFIX + "Disabled successfully"
+
+ENABLE_NOT_ADMIN = A_PREFIX + "Tried to use enable command!"
+ENABLE_WHEN_ENABLED = A_PREFIX + "Bot is already enabled!"
+ENABLE_SUCCESS = A_PREFIX + "Enabled successfully"

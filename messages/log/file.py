@@ -1,6 +1,7 @@
 from messages.log.default import U_PREFIX
 
 REQUESTED = U_PREFIX + "Requested: {}"
+DOCUMENT_REQUEST = U_PREFIX + "Document requested: {}"
 SIZE_LIMIT = U_PREFIX + "File: {}, File exceeds the size limit"
 DURATION_LIMIT = U_PREFIX + "File: {}, Duration exceeds the limit"
 REQUEST_ERROR = U_PREFIX + "Can't request file: {}, {}"

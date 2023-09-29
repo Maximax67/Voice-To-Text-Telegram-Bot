@@ -23,3 +23,11 @@ TG_BROADCAST_FAIL = "Could not broadcast for: {}!\nBroadcasted to {}/{} user and
 TG_BROADCAST_SUCCESS = "Broadcasted successfully to {} users and chats!"
 TG_BROADCAST_FORWARD_FAIL = "Could not forward your replied message for: {}!\nBroadcasted to {}/{} user and chats!"
 TG_BROADCAST_FORWARD_SUCCESS = "Forwarded successfully to {} users and chats!"
+
+TG_GET_CHAT_ID_INFO = "ChatID: <code>{}</code>"
+
+TG_DISABLE_SUCCESS = "Bot disabled!"
+TG_DISABLE_WHEN_DISABLED = "Bot is already disabled!"
+
+TG_ENABLE_SUCCESS = "Bot enabled!"
+TG_ENABLE_WHEN_ENABLED = "Bot is already enabled!"

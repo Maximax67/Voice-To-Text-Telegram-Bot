@@ -2,6 +2,7 @@ import asyncio
 from aiogram import types
 from aiogram.filters.command import Command
 from aiogram.types.input_file import FSInputFile
+from functools import wraps
 
 from bot_init import dp, bot
 from logger import logger
@@ -16,8 +17,58 @@ from config import COMMAND_TRANSCRIBE, COMMAND_DIARIZE, INSTANT_REPLY_IN_GROUPS,
                     ADMIN_ID, LOG_FILENAME, MAX_MESSAGE_LENGTH
 
 
+disabled = False
+disabled_semaphore = asyncio.Semaphore(1)
+
+
+# Function to get disabled status
+async def is_disabled():
+    async with disabled_semaphore:
+        global disabled
+        return disabled
+
+
+# Function to bypass disabled status
+# 1 - Bot enabled
+# 2 - Bot disabled, admin bypass
+# 0 - Bot disabled, you are not admin
+async def disable_bypass(user_id: int, chat_id: int):
+    dis = await is_disabled()
+    if not dis:
+        return 1
+
+    if check_if_admin(chat_id, user_id):
+        return 2
+
+    return 0
+
+
+# Function to check if bot is disabled and bypass only admins
+def disabled_check():
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args):
+            message = args[0]
+            chat_id = message.chat.id
+            user = message.from_user
+            user_id = user.id
+
+            bypass = await disable_bypass(user_id, chat_id)
+            if not bypass:
+                logger.info(DISABLED.format(user_id, chat_id, user.username))
+                return
+
+            if bypass == 2:
+                logger.info(DISABLED_BYPASS.format(user_id, chat_id, user.username))
+
+            return await func(*args)
+        return wrapper
+    return decorator
+
+
 # Function to handle start commands
 @dp.message(Command("start"))
+@disabled_check()
 async def transcribe_command(message: types.Message):
     user = message.from_user
     logger.info(START_COMMAND.format(user.id, message.chat.id, user.username))
@@ -26,6 +77,7 @@ async def transcribe_command(message: types.Message):
 
 # Function to handle help commands
 @dp.message(Command("help"))
+@disabled_check()
 async def transcribe_command(message: types.Message):
     user = message.from_user
     logger.info(HELP_COMMAND.format(user.id, message.chat.id, user.username))
@@ -34,12 +86,14 @@ async def transcribe_command(message: types.Message):
 
 # Function to handle COMMAND_TRANSCRIBE
 @dp.message(Command(COMMAND_TRANSCRIBE))
+@disabled_check()
 async def transcribe_command(message: types.Message):
     await process_request(message, True, False)
 
 
 # Function to handle COMMAND_DIARIZE
 @dp.message(Command(COMMAND_DIARIZE))
+@disabled_check()
 async def diarize_command(message: types.Message):
     await process_request(message, True, True)
 
@@ -153,7 +207,7 @@ async def send_file(message: types.Message):
         await message.reply(TG_FILE_SEND_ERROR)
 
 
-# Function to handle broadcast commands
+# Function to handle admin broadcast commands
 @dp.message(Command("adminbroadcast"))
 async def admin_broadcast(message: types.Message):
     chat_id = message.chat.id
@@ -282,13 +336,84 @@ async def broadcast(message: types.Message):
             await message.reply(TG_BROADCAST_FORWARD_SUCCESS.format(len(ids)))
 
 
-# Function to handle direct voice messages
+# Function to handle chatid commands
+@dp.message(Command("chatid"))
+async def get_chat_id(message: types.Message):
+    chat_id = message.chat.id
+    user = message.from_user
+    user_id = user.id
+
+    if not check_if_admin(chat_id, user_id):
+        logger.info(GET_CHAT_ID_NOT_ADMIN.format(user_id, chat_id, user.username))
+        return
+
+    logger.info(GET_CHAT_ID_INFO.format(user_id, chat_id, user.username))
+    await message.reply(TG_GET_CHAT_ID_INFO.format(chat_id), parse_mode="HTML")
+
+
+# Function to handle disable commands
+@dp.message(Command("disable"))
+async def get_chat_id(message: types.Message):
+    chat_id = message.chat.id
+    user = message.from_user
+    user_id = user.id
+
+    if not check_if_admin(chat_id, user_id):
+        logger.info(DISABLE_NOT_ADMIN.format(user_id, chat_id, user.username))
+        return
+
+    async with disabled_semaphore:
+        global disabled
+        if disabled:
+            logger.info(DISABLE_WHEN_DISABLED.format(user_id, chat_id, user.username))
+            await message.reply(TG_DISABLE_WHEN_DISABLED)
+        else:
+            disabled = True
+            logger.info(DISABLE_SUCCESS.format(user_id, chat_id, user.username))
+            await message.reply(TG_DISABLE_SUCCESS)
+
+
+# Function to handle enable commands
+@dp.message(Command("enable"))
+async def get_chat_id(message: types.Message):
+    chat_id = message.chat.id
+    user = message.from_user
+    user_id = user.id
+
+    if not check_if_admin(chat_id, user_id):
+        logger.info(ENABLE_NOT_ADMIN.format(user_id, chat_id, user.username))
+        return
+
+    async with disabled_semaphore:
+        global disabled
+        if disabled:
+            disabled = False
+            logger.info(ENABLE_SUCCESS.format(user_id, chat_id, user.username))
+            await message.reply(TG_ENABLE_SUCCESS)
+        else:
+            logger.info(ENABLE_WHEN_ENABLED.format(user_id, chat_id, user.username))
+            await message.reply(TG_ENABLE_WHEN_ENABLED)
+
+
+# Function to handle all messages
 @dp.message()
-async def voice_message(message: types.Message):
-    if message.content_type in {'voice', 'audio', 'video_note', 'video'}:
+async def all_messages(message: types.Message):
+    user = message.from_user
+    if message.content_type in {'voice', 'audio', 'video_note', 'video', 'document'}:
         if message.chat.type == 'private' or INSTANT_REPLY_IN_GROUPS:
+            bypass = await disable_bypass(user.id, message.chat.id)
+            if not bypass:
+                return
+
+            if bypass == 2:
+                logger.info(DISABLED_BYPASS.format(user.id, message.chat.id, user.username))
             await process_request(message, False, False)
     elif message.chat.type == 'private':
-        user = message.from_user
+        bypass = await disable_bypass(user.id, message.chat.id)
+        if not bypass:
+            return
+
+        if bypass == 2:
+            logger.info(DISABLED_BYPASS.format(user.id, message.chat.id, user.username))
         logger.info(INVALID_MESSAGE.format(user.id, message.chat.id, user.username, message.message_id))
         await message.reply(TG_INVALID_MESSAGE_DIRECT)
