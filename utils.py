@@ -8,7 +8,8 @@ from aiogram.utils.formatting import Text, Bold
 from bot_init import bot
 from logger import logger
 from messages.log.handlers import ADMIN_BROADCAST_FAIL, ADMIN_BROADCAST_FORWARD_FAIL
-from messages.log.other import LONG_MESSAGE_SEND_ERROR, LOG_FILE_NOT_FOUND, LOG_FILE_READ_ERROR
+from messages.log.other import LONG_MESSAGE_SEND_ERROR, LOG_FILE_NOT_FOUND, LOG_FILE_READ_ERROR, \
+                                EDIT_MESSAGE_ERROR, SEND_MESSAGE_ERROR, REPLY_MESSAGE_ERROR
 from messages.telegram.other import TG_LONG_MESSAGE_SEND_ERROR
 from config import COMMAND_TRANSCRIBE, COMMAND_DIARIZE, INSTANT_REPLY_IN_GROUPS, ADMIN_ID, MAX_FILE_SIZE, \
                     MAX_DURATION_SECONDS, MAX_SIMULTANIOUS_REQUESTS, USER_RATE_LIMIT, USER_REQUEST_TIME, MAX_MESSAGE_LENGTH
@@ -21,6 +22,39 @@ async def to_thread(func, /, *args, **kwargs):
     ctx = contextvars.copy_context()
     func_call = partial(ctx.run, func, *args, **kwargs)
     return await loop.run_in_executor(None, func_call)
+
+
+# Function to send the message
+async def send_message(chat_id: int, text: str, parse_mode=None):
+    try:
+        msg = await bot.send_message(chat_id, text, parse_mode=parse_mode)
+        return msg
+    except Exception as e:
+        logger.error(SEND_MESSAGE_ERROR.format(str(e)))
+
+
+# Function to edit the message
+async def edit_message(message: types.Message, text: str, parse_mode=None, send_new=True):
+    try:
+        msg = await message.edit_text(text, parse_mode=parse_mode)
+        return msg
+    except Exception as e:
+        logger.error(EDIT_MESSAGE_ERROR.format(str(e)))
+
+    if send_new:
+        return await send_message(message.chat.id, text, parse_mode=parse_mode)
+
+
+# Function to reply to the message
+async def reply_message(message: types.Message, text: str, parse_mode=None, send_new=True):
+    try:
+        msg = await message.reply(text, parse_mode=parse_mode)
+        return msg
+    except Exception as e:
+        logger.error(REPLY_MESSAGE_ERROR.format(str(e)))
+
+    if send_new:
+        return await send_message(message.chat.id, text, parse_mode=parse_mode)
 
 
 # Function to send a long message split into multiple parts
@@ -38,18 +72,18 @@ async def send_long_message(msg: types.Message, text: str, new_reply=True, parse
             if i == 0:
                 # Send the first part as a new message
                 if new_reply:
-                    msg_next = await msg.reply(part, parse_mode=parse_mode)
+                    msg_next = await reply_message(msg, part, parse_mode=parse_mode)
                 else:
-                    msg_next = await msg.edit_text(part, parse_mode=parse_mode)
+                    msg_next = await edit_message(msg, part, parse_mode=parse_mode)
             else:
                 # Send subsequent parts as replies to the previous message
-                msg_next = await msg_next.reply(part, parse_mode=parse_mode)
+                msg_next = await reply_message(msg_next, part, parse_mode=parse_mode)
     except Exception as e:
         logger.error(LONG_MESSAGE_SEND_ERROR.format(str(e)))
         if "msg_next" in locals():
-            await msg_next.reply(TG_LONG_MESSAGE_SEND_ERROR)
+            await reply_message(msg_next, TG_LONG_MESSAGE_SEND_ERROR)
         else:
-            await msg.reply(TG_LONG_MESSAGE_SEND_ERROR)
+            await reply_message(msg, TG_LONG_MESSAGE_SEND_ERROR)
 
 
 # Function to get bot settings

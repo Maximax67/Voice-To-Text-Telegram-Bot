@@ -5,6 +5,10 @@ TELEGRAM_TOKEN_NOT_SET = "TELEGRAM_BOT_TOKEN not set! App will crash soon..."
 APP_START = "App started!"
 APP_ERROR = "App Error: {}"
 
+EDIT_MESSAGE_ERROR = "Can't edit message: {}"
+SEND_MESSAGE_ERROR = "Can't send message: {}"
+REPLY_MESSAGE_ERROR = "Can't reply to message: {}"
+
 INVALID_MESSAGE = U_PREFIX + "Invalid message: {}"
 REQUEST_LIMIT = U_PREFIX + "Max request limit exceeded!"
 

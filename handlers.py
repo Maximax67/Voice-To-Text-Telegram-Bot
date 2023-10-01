@@ -12,7 +12,8 @@ from messages.telegram.handlers import *
 from messages.telegram.other import TG_INVALID_MESSAGE_DIRECT
 from api import process_request
 from utils import get_bot_settings, check_if_admin, get_args_after_command, get_last_n_lines,\
-                    send_long_message, send_message_to_admins, forward_message_to_admins, logs_formatter
+                    send_long_message, send_message_to_admins, forward_message_to_admins,\
+                    logs_formatter, reply_message
 from config import COMMAND_TRANSCRIBE, COMMAND_DIARIZE, INSTANT_REPLY_IN_GROUPS, \
                     ADMIN_ID, LOG_FILENAME, MAX_MESSAGE_LENGTH
 
@@ -111,7 +112,7 @@ async def send_logs_file(message: types.Message):
 
     if not LOG_FILENAME:
         logger.info(LOGSFILE_NOT_SAVING.format(user_id, chat_id, user.username))
-        await message.reply(TG_LOGS_NOT_SAVING_IN_FILE)
+        await reply_message(message, TG_LOGS_NOT_SAVING_IN_FILE)
         return
 
     log_file = FSInputFile(LOG_FILENAME)
@@ -120,7 +121,7 @@ async def send_logs_file(message: types.Message):
         logger.info(LOGSFILE_SEND.format(user_id, chat_id, user.username))
     except Exception as e:
         logger.error(LOGSFILE_SEND_ERROR.format(user_id, chat_id, user.username, str(e)))
-        await message.reply(TG_LOGS_SEND_ERROR)
+        await reply_message(message, TG_LOGS_SEND_ERROR)
 
 
 # Function to handle logs commands
@@ -136,7 +137,7 @@ async def send_logs(message: types.Message):
 
     if not LOG_FILENAME:
         logger.info(LOGS_NOT_SAVING.format(user_id, chat_id, user.username))
-        await message.reply(TG_LOGS_NOT_SAVING_IN_FILE)
+        await reply_message(message, TG_LOGS_NOT_SAVING_IN_FILE)
         return
 
     text = message.text
@@ -145,19 +146,19 @@ async def send_logs(message: types.Message):
     # Check if the command has an argument
     if not arg:
         logger.info(LOGS_NO_ARGS.format(user_id, chat_id, user.username))
-        await message.reply(TG_LOGS_INVALID_FORMAT)
+        await reply_message(message, TG_LOGS_INVALID_FORMAT)
         return
 
     try:
         N = int(arg)
     except Exception:
         logger.info(LOGS_INVALID_N.format(user_id, chat_id, user.username, N))
-        await message.reply(TG_LOGS_INVALID_N)
+        await reply_message(message, TG_LOGS_INVALID_N)
         return
 
     if N < 1 or N > 100:
         logger.info(LOGS_INVALID_N_VALUE.format(user_id, chat_id, user.username, N))
-        await message.reply(TG_LOGS_INVALID_N_VALUE)
+        await reply_message(message, TG_LOGS_INVALID_N_VALUE)
         return
 
     result = get_last_n_lines(LOG_FILENAME, N)
@@ -165,14 +166,14 @@ async def send_logs(message: types.Message):
 
     if not result:
         logger.error(LOGS_GET_ERROR.format(user_id, chat_id, user.username, N))
-        await message.reply(TG_LOGS_GET_ERROR)
+        await reply_message(message, TG_LOGS_GET_ERROR)
         return
 
     str_result = '\n'.join(result)
 
     logger.info(LOGS_SEND.format(user_id, chat_id, user.username, N))
     if len(str_result) <= MAX_MESSAGE_LENGTH:
-        await message.reply(str_result, parse_mode="HTML")
+        await reply_message(message, str_result, parse_mode="HTML")
     else:
         await send_long_message(message, str_result, parse_mode="HTML")
 
@@ -195,7 +196,7 @@ async def send_file(message: types.Message):
     # Check if the command has an argument
     if not file_id:
         logger.info(FILE_NOT_ARGS.format(user_id, chat_id, user.username))
-        await message.reply(TG_FILE_INVALID_FORMAT)
+        await reply_message(message, TG_FILE_INVALID_FORMAT)
         return
 
     # Send the voice message to the chat where the command was sent
@@ -204,7 +205,7 @@ async def send_file(message: types.Message):
         logger.info(FILE_SEND.format(user_id, chat_id, user.username, file_id))
     except Exception as e:
         logger.error(FILE_SEND_ERROR.format(user_id, chat_id, user.username, file_id, str(e)))
-        await message.reply(TG_FILE_SEND_ERROR)
+        await reply_message(message, TG_FILE_SEND_ERROR)
 
 
 # Function to handle admin broadcast commands
@@ -220,7 +221,7 @@ async def admin_broadcast(message: types.Message):
 
     if len(ADMIN_ID) < 2:
         logger.info(ADMIN_BROADCAST_ONE_ADMIN.format(user_id, chat_id, user.username))
-        await message.reply(TG_ADMIN_BROADCAST_ONE_ADMIN)
+        await reply_message(message, TG_ADMIN_BROADCAST_ONE_ADMIN)
         return
 
     # Extract the message from the command arguments
@@ -232,7 +233,7 @@ async def admin_broadcast(message: types.Message):
     # Check if the command has an argument
     if not broadcast_message and not replied:
         logger.info(ADMIN_BROADCAST_NO_ARGS.format(user_id, chat_id, user.username))
-        await message.reply(TG_ADMIN_BROADCAST_INVALID_FORMAT)
+        await reply_message(message, TG_ADMIN_BROADCAST_INVALID_FORMAT)
         return
 
     me = []
@@ -243,7 +244,7 @@ async def admin_broadcast(message: types.Message):
 
     if len(me) == len(ADMIN_ID):
         logger.info(ADMIN_BROADCAST_UNIMPORTANT.format(user_id, chat_id, user.username))
-        await message.reply(TG_ADMIN_BROADCAST_UNIMPORTANT)
+        await reply_message(message, TG_ADMIN_BROADCAST_UNIMPORTANT)
         return
 
     # Send the broadcast message
@@ -252,16 +253,16 @@ async def admin_broadcast(message: types.Message):
     if broadcast_message:
         failed = await send_message_to_admins(broadcast_message, me)
         if failed:
-            await message.reply(TG_ADMIN_BROADCAST_FAIL.format(', '.join(str(item) for item in failed), len(ADMIN_ID) - len(failed) - 1, len(ADMIN_ID) - 1))
+            await reply_message(message, TG_ADMIN_BROADCAST_FAIL.format(', '.join(str(item) for item in failed), len(ADMIN_ID) - len(failed) - 1, len(ADMIN_ID) - 1))
         else:
-            await message.reply(TG_ADMIN_BROADCAST_SUCCESS.format(len(ADMIN_ID) - 1))
+            await reply_message(message, TG_ADMIN_BROADCAST_SUCCESS.format(len(ADMIN_ID) - 1))
 
     if replied:
         failed = await forward_message_to_admins(replied, me)
         if failed:
-            await message.reply(TG_ADMIN_BROADCAST_FORWARD_FAIL.format(', '.join(str(item) for item in failed), len(ADMIN_ID) - len(failed) - 1, len(ADMIN_ID) - 1))
+            await reply_message(message, TG_ADMIN_BROADCAST_FORWARD_FAIL.format(', '.join(str(item) for item in failed), len(ADMIN_ID) - len(failed) - 1, len(ADMIN_ID) - 1))
         else:
-            await message.reply(TG_ADMIN_BROADCAST_FORWARD_SUCCESS.format(len(ADMIN_ID) - 1))
+            await reply_message(message, TG_ADMIN_BROADCAST_FORWARD_SUCCESS.format(len(ADMIN_ID) - 1))
 
 
 # Function to handle broadcast commands
@@ -286,7 +287,7 @@ async def broadcast(message: types.Message):
     # Check if the command has arguments
     if not args or (not replied and len(args) == 1):
         logger.info(BROADCAST_NO_ARGS.format(user_id, chat_id, user.username))
-        await message.reply(TG_BROADCAST_INVALID_FORMAT)
+        await reply_message(message, TG_BROADCAST_INVALID_FORMAT)
         return
 
     ids = args[0]
@@ -295,7 +296,7 @@ async def broadcast(message: types.Message):
         ids = [int(x) for x in ids.split(",")]
     except Exception:
         logger.info(BROADCAST_ID_ERROR.format(user_id, chat_id, user.username, ids))
-        await message.reply(TG_BROADCAST_INVALID_IDS)
+        await reply_message(message, TG_BROADCAST_INVALID_IDS)
         return
 
     broadcast_message = None
@@ -315,9 +316,9 @@ async def broadcast(message: types.Message):
                 logger.error(BROADCAST_FAIL.format(id, str(e)))
 
         if failed:
-            await message.reply(TG_BROADCAST_FAIL.format(', '.join(str(item) for item in failed), len(ids) - len(failed), len(ids)))
+            await reply_message(message, TG_BROADCAST_FAIL.format(', '.join(str(item) for item in failed), len(ids) - len(failed), len(ids)))
         else:
-            await message.reply(TG_BROADCAST_SUCCESS.format(len(ids)))
+            await reply_message(message, TG_BROADCAST_SUCCESS.format(len(ids)))
 
     # Forward replied message
     if replied:
@@ -331,9 +332,9 @@ async def broadcast(message: types.Message):
                 logger.error(BROADCAST_FORWARD_FAIL.format(id, str(e)))
 
         if failed_forward:
-            await message.reply(TG_BROADCAST_FORWARD_FAIL.format(', '.join(str(item) for item in failed), len(ids) - len(failed), len(ids)))
+            await reply_message(message, TG_BROADCAST_FORWARD_FAIL.format(', '.join(str(item) for item in failed), len(ids) - len(failed), len(ids)))
         else:
-            await message.reply(TG_BROADCAST_FORWARD_SUCCESS.format(len(ids)))
+            await reply_message(message, TG_BROADCAST_FORWARD_SUCCESS.format(len(ids)))
 
 
 # Function to handle chatid commands
@@ -348,7 +349,7 @@ async def get_chat_id(message: types.Message):
         return
 
     logger.info(GET_CHAT_ID_INFO.format(user_id, chat_id, user.username))
-    await message.reply(TG_GET_CHAT_ID_INFO.format(chat_id), parse_mode="HTML")
+    await reply_message(message, TG_GET_CHAT_ID_INFO.format(chat_id), parse_mode="HTML")
 
 
 # Function to handle disable commands
@@ -366,11 +367,11 @@ async def get_chat_id(message: types.Message):
         global disabled
         if disabled:
             logger.info(DISABLE_WHEN_DISABLED.format(user_id, chat_id, user.username))
-            await message.reply(TG_DISABLE_WHEN_DISABLED)
+            await reply_message(message, TG_DISABLE_WHEN_DISABLED)
         else:
             disabled = True
             logger.info(DISABLE_SUCCESS.format(user_id, chat_id, user.username))
-            await message.reply(TG_DISABLE_SUCCESS)
+            await reply_message(message, TG_DISABLE_SUCCESS)
 
 
 # Function to handle enable commands
@@ -389,10 +390,10 @@ async def get_chat_id(message: types.Message):
         if disabled:
             disabled = False
             logger.info(ENABLE_SUCCESS.format(user_id, chat_id, user.username))
-            await message.reply(TG_ENABLE_SUCCESS)
+            await reply_message(message, TG_ENABLE_SUCCESS)
         else:
             logger.info(ENABLE_WHEN_ENABLED.format(user_id, chat_id, user.username))
-            await message.reply(TG_ENABLE_WHEN_ENABLED)
+            await reply_message(message, TG_ENABLE_WHEN_ENABLED)
 
 
 # Function to handle all messages
@@ -416,4 +417,4 @@ async def all_messages(message: types.Message):
         if bypass == 2:
             logger.info(DISABLED_BYPASS.format(user.id, message.chat.id, user.username))
         logger.info(INVALID_MESSAGE.format(user.id, message.chat.id, user.username, message.message_id))
-        await message.reply(TG_INVALID_MESSAGE_DIRECT)
+        await reply_message(message, TG_INVALID_MESSAGE_DIRECT)

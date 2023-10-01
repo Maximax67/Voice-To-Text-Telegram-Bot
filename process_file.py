@@ -6,6 +6,7 @@ from messages.log.file import *
 from messages.log.other import INVALID_MESSAGE
 from messages.telegram.file import *
 from messages.telegram.other import TG_INVALID_MESSAGE_REPLY
+from utils import reply_message, edit_message
 from config import MAX_FILE_SIZE, MAX_DURATION_SECONDS, SUPPORTED_FILE_EXTENSIONS
 
 
@@ -23,7 +24,7 @@ async def get_file(message: types.Message, reply: bool):
         file = message.voice or message.audio or message.video_note or message.video or message.document if message else None
         if not file:
             logger.info(INVALID_MESSAGE.format(user_id, chat_id, username, trigger_msg.message_id))
-            await trigger_msg.reply(TG_INVALID_MESSAGE_REPLY)
+            await reply_message(trigger_msg, TG_INVALID_MESSAGE_REPLY)
             return
 
         file_id = file.file_id
@@ -37,7 +38,7 @@ async def get_file(message: types.Message, reply: bool):
         if MAX_FILE_SIZE and file.file_size > MAX_FILE_SIZE:
             logger.info(SIZE_LIMIT.format(user_id, chat_id, username, file_id))
             if chat_id == user_id or reply:
-                await message.reply(TG_FILE_SIZE_LIMIT_EXCEED)
+                await reply_message(message, TG_FILE_SIZE_LIMIT_EXCEED)
 
             return
 
@@ -45,7 +46,7 @@ async def get_file(message: types.Message, reply: bool):
         if hasattr(file, "duration") and MAX_DURATION_SECONDS and file.duration > MAX_DURATION_SECONDS:
             logger.info(DURATION_LIMIT.format(user_id, chat_id, username, file_id))
             if chat_id == user_id or reply:
-                await message.reply(TG_FILE_DURATION_LIMIT_EXCEED)
+                await reply_message(message, TG_FILE_DURATION_LIMIT_EXCEED)
 
             return
 
@@ -60,7 +61,7 @@ async def get_file(message: types.Message, reply: bool):
                 if last_dot_index == -1:
                     logger.info(UNKNOWN_EXTENSION.format(user_id, chat_id, username, file_id))
                     if chat_id == user_id or reply:
-                        await message.reply(TG_FILE_EXTENSION_UNKNOWN)
+                        await reply_message(message, TG_FILE_EXTENSION_UNKNOWN)
 
                     return
 
@@ -68,7 +69,7 @@ async def get_file(message: types.Message, reply: bool):
                 if not file_extension in SUPPORTED_FILE_EXTENSIONS:
                     logger.info(UNSUPPORTED_FORMAT.format(user_id, chat_id, username, file_id, file_extension))
                     if chat_id == user_id or reply:
-                        await message.reply(TG_FILE_UNSUPPORTED_FORMAT.format(file_extension))
+                        await reply_message(message, TG_FILE_UNSUPPORTED_FORMAT.format(file_extension))
 
                     return
 
@@ -76,15 +77,15 @@ async def get_file(message: types.Message, reply: bool):
             if MAX_FILE_SIZE and file_requested.file_size > MAX_FILE_SIZE:
                 logger.info(SIZE_LIMIT.format(user_id, chat_id, username, file_id))
                 if chat_id == user_id or reply:
-                    await message.reply(TG_FILE_SIZE_LIMIT_EXCEED)
+                    await reply_message(message, TG_FILE_SIZE_LIMIT_EXCEED)
 
                 return
         except Exception as e:
             logger.error(REQUEST_ERROR.format(user_id, chat_id, username, file_id, str(e)))
-            await message.reply(TG_FILE_REQUEST_ERROR)
+            await reply_message(message, TG_FILE_REQUEST_ERROR)
             return
 
-        msg = await message.reply(TG_FILE_WAIT_DOWNLOAD)
+        msg = await reply_message(message, TG_FILE_WAIT_DOWNLOAD)
 
         # Download the voice message
         try:
@@ -92,11 +93,11 @@ async def get_file(message: types.Message, reply: bool):
             data = file_content.read()
         except Exception as e:
             logger.error(DOWNLOAD_ERROR.format(user_id, chat_id, username, file_id, str(e)))
-            await msg.edit_text(TG_FILE_DOWNLOAD_ERROR)
+            msg = await edit_message(msg, TG_FILE_DOWNLOAD_ERROR)
             return
     except Exception as e:
         logger.error(UNKNOWN_ERROR.format(user_id, chat_id, username, str(e)))
-        await trigger_msg.reply(TG_FILE_ERROR)
+        await reply_message(trigger_msg, TG_FILE_ERROR)
         return
 
     return data, msg, file.file_id
