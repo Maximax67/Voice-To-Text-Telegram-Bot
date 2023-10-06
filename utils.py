@@ -57,6 +57,46 @@ async def reply_message(message: types.Message, text: str, parse_mode=None, send
         return await send_message(message.chat.id, text, parse_mode=parse_mode)
 
 
+# Check if message has not opened <code> tag
+def is_first_code_tag_opened(message: str):
+    # Find the first occurrence of </code>
+    first_code_close = message.find("</code>")
+
+    # If </code> is not found, return True
+    if first_code_close == -1:
+        return True
+
+    # Find the corresponding <code> tag after before </code>
+    first_code_start = message.find("<code>", 0, first_code_close)
+
+    # If <code> is not found or is after the first </code>, return False
+    if first_code_start == -1 or first_code_start > first_code_close:
+        return False
+
+    # If everything checks out, return True
+    return True
+
+
+# Check if message has not closed <code> tag
+def is_last_code_tag_closed(message: str):
+    # Find the last occurrence of <code> from the right
+    last_code_start = message.rfind("<code>")
+
+    # If <code> is not found, return True
+    if last_code_start == -1:
+        return True
+
+    # Find the corresponding </code> tag after the last <code>
+    last_code_end = message.find("</code>", last_code_start)
+
+    # If </code> is not found or is before the last <code>, return False
+    if last_code_end == -1 or last_code_end < last_code_start:
+        return False
+
+    # If everything checks out, return True
+    return True
+
+
 # Function to send a long message split into multiple parts
 async def send_long_message(msg: types.Message, text: str, new_reply=True, parse_mode=None):
     try:
@@ -68,6 +108,12 @@ async def send_long_message(msg: types.Message, text: str, new_reply=True, parse
             start_index = i * MAX_MESSAGE_LENGTH
             end_index = (i + 1) * MAX_MESSAGE_LENGTH
             part = text[start_index:end_index]
+
+            if parse_mode == "HTML":
+                if not is_first_code_tag_opened(part):
+                    part = "<code>" + part
+                if not is_last_code_tag_closed(part):
+                    part += "</code>"
 
             if i == 0:
                 # Send the first part as a new message
