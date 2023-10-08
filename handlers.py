@@ -247,9 +247,12 @@ async def admin_broadcast(message: types.Message):
         await reply_message(message, TG_ADMIN_BROADCAST_UNIMPORTANT)
         return
 
-    # Send the broadcast message
-    logger.info(ADMIN_BROADCAST_MESSAGE.format(user_id, chat_id, user.username, broadcast_message))
+    if broadcast_message:
+        logger.info(ADMIN_BROADCAST_MESSAGE.format(user_id, chat_id, user.username, broadcast_message))
+    if replied:
+        logger.info(ADMIN_BROADCAST_FORWARD.format(user_id, chat_id, user.username))
 
+    # Send the broadcast message
     if broadcast_message:
         failed = await send_message_to_admins(broadcast_message, me)
         if failed:
@@ -322,6 +325,7 @@ async def broadcast(message: types.Message):
 
     # Forward replied message
     if replied:
+        logger.info(BROADCAST_FORWARD.format(user_id, chat_id, user.username))
         failed_forward = []
         for id in ids:
             try:

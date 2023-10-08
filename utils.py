@@ -97,6 +97,19 @@ def is_last_code_tag_closed(message: str):
     return True
 
 
+# Check if code tag is partially written
+def code_tag_partial(message: str, is_start: bool):
+    if is_start:
+        brace_pos = message.find(">", 0, 5)
+    else:
+        brace_pos = message.find("<", len(message) - 6, len(message))
+
+    if brace_pos != -1:
+        return brace_pos
+
+    return -1
+
+
 # Function to send a long message split into multiple parts
 async def send_long_message(msg: types.Message, text: str, new_reply=True, parse_mode=None):
     try:
@@ -112,6 +125,12 @@ async def send_long_message(msg: types.Message, text: str, new_reply=True, parse
             if parse_mode == "HTML":
                 if not is_first_code_tag_opened(part):
                     part = "<code>" + part
+                partial = code_tag_partial(part, True)
+                if partial != -1:
+                    part = part[partial + 1:]
+                partial = code_tag_partial(part, False)
+                if partial != -1:
+                    part = part[:partial] + "</code>"
                 if not is_last_code_tag_closed(part):
                     part += "</code>"
 
