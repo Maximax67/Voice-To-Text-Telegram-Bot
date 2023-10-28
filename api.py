@@ -74,61 +74,72 @@ async def process_request(message: types.Message, reply=False, diarize=False):
 async def transcribe_queue_process():
     while True:
         async with api_transcribe_semaphore:
-            # Get the message and its arguments from the queue
-            audio, msg, user_id, chat_id, username = await transcribe_request_queue.get()
-            msg = await edit_message(msg, TG_WAIT_TRANSCRIBE)
-
             try:
-                result = await to_thread(gradio_transcribe.predict, audio, "transcribe", api_name="/predict")
-                logger.info(TRANSCRIBE_RESULT.format(user_id, chat_id, username, audio['name'], result))
+                # Get the message and its arguments from the queue
+                audio, msg, user_id, chat_id, username = await transcribe_request_queue.get()
+                msg = await edit_message(msg, TG_WAIT_TRANSCRIBE)
+
+                try:
+                    result = await to_thread(gradio_transcribe.predict, audio, "transcribe", False, api_name="/predict")
+                    result = result[0]
+                    logger.info(TRANSCRIBE_RESULT.format(user_id, chat_id, username, audio['name'], result))
+                except Exception as e:
+                    logger.error(TRANSCRIBE_RESULT.format(user_id, chat_id, username, audio['name'], str(e)))
+                    await edit_message(msg, TG_API_TRANSCRIBE_ERROR)
+                    continue
+
+                try:
+                    if len(result) <= MAX_MESSAGE_LENGTH:
+                        await edit_message(msg, result)
+                    elif result:
+                        await send_long_message(msg, result, False)
+                    else:
+                        await edit_message(msg, TG_API_NO_TEXT)
+                except Exception as e:
+                    logger.error(TRANSCRIBE_SENDING_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
+                    await edit_message(msg, TG_API_TRANSCRIBE_SEND_ERROR)
+
+                await asyncio.sleep(0.1)
             except Exception as e:
-                logger.error(TRANSCRIBE_RESULT.format(user_id, chat_id, username, audio['name'], str(e)))
-                await edit_message(msg, TG_API_TRANSCRIBE_ERROR)
                 continue
-
-            try:
-                if len(result) <= MAX_MESSAGE_LENGTH:
-                    await edit_message(msg, result)
-                elif result:
-                    await send_long_message(msg, result, False)
-                else:
-                    await edit_message(msg, TG_API_NO_TEXT)
-            except Exception as e:
-                logger.error(TRANSCRIBE_SENDING_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
-                await edit_message(msg, TG_API_TRANSCRIBE_SEND_ERROR)
 
 
 # Fuction to process diarize API queue
 async def diarize_queue_process():
     while True:
         async with api_diarize_semaphore:
-            # Get the message and its arguments from the queue
-            audio, msg, user_id, chat_id, username = await diarize_request_queue.get()
-            msg = await edit_message(msg, TG_WAIT_DIARIZE)
-
             try:
-                result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
-                logger.info(DIARIZE_RESULT.format(user_id, chat_id, username, audio['name'], result))
-            except Exception as e:
-                if e:
-                    logger.error(DIARIZE_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
-                    await edit_message(msg, TG_API_DIARIZE_ERROR)
-                else:
-                    logger.error(DIARIZE_NO_SPEAKERS_ERROR.format(user_id, chat_id, username, audio['name']))
-                    await edit_message(msg, TG_API_DIARIZE_NO_SPEAKERS_ERROR)
+                # Get the message and its arguments from the queue
+                audio, msg, user_id, chat_id, username = await diarize_request_queue.get()
+                msg = await edit_message(msg, TG_WAIT_DIARIZE)
 
+                try:
+                    result = await to_thread(gradio_diarize.predict, audio, "transcribe", True, api_name="/predict")
+                    logger.info(DIARIZE_RESULT.format(user_id, chat_id, username, audio['name'], result))
+                except Exception as e:
+                    if e:
+                        logger.error(DIARIZE_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
+                        await edit_message(msg, TG_API_DIARIZE_ERROR)
+                    else:
+                        logger.error(DIARIZE_NO_SPEAKERS_ERROR.format(user_id, chat_id, username, audio['name']))
+                        await edit_message(msg, TG_API_DIARIZE_NO_SPEAKERS_ERROR)
+
+                    continue
+
+                try:
+                    if len(result) <= MAX_MESSAGE_LENGTH:
+                        await edit_message(msg, result)
+                    elif result:
+                        await send_long_message(msg, result, False)
+                    else:
+                        await edit_message(msg, TG_API_NO_TEXT)
+                except Exception as e:
+                    logger.error(DIARIZE_SENDING_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
+                    await edit_message(msg, TG_API_DIARIZE_SEND_ERROR)
+
+                await asyncio.sleep(0.1)
+            except Exception as e:
                 continue
-
-            try:
-                if len(result) <= MAX_MESSAGE_LENGTH:
-                    await edit_message(msg, result)
-                elif result:
-                    await send_long_message(msg, result, False)
-                else:
-                    await edit_message(msg, TG_API_NO_TEXT)
-            except Exception as e:
-                logger.error(DIARIZE_SENDING_ERROR.format(user_id, chat_id, username, audio['name'], str(e)))
-                await edit_message(msg, TG_API_DIARIZE_SEND_ERROR)
 
 
 # Function to perform the API request with retries
